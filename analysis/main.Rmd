@@ -130,13 +130,25 @@ if (!file.exists(anova_rds_path)) {
     compute_anova,
     template = sample_info
   )
-  mdx_anova <- bind_rows(mdx_anova)
-  mdx_anova <- bind_cols(
-    counts %>% select(!contains('sample')),
-    mdx_anova
-  )
 
-  saveRDS(mdx_anova, anova_rds_path)
+  bind_rows(mdx_anova) %>%
+    mutate(
+      across(
+        c(
+          genotype, age_days, tissue, `genotype:age_days`, `genotype:tissue`,
+          `age_days:tissue`, `genotype:age_days:tissue`
+        ),
+        list(fdr = p.adjust),
+        method = 'fdr'
+      )
+    ) %>%
+    {{
+      bind_cols(
+        counts %>% select(!contains('sample')),
+        .
+      )
+    }} %>%
+    saveRDS(anova_rds_path)
 }
 ```
 
@@ -154,16 +166,6 @@ for (way in groups) {
       by = c(
         'gene_stable_id', 'gene_description', 'chr', 'gene_name',
         'gene_type', 'gene_synonym'
-      )
-    ) %>%
-    mutate(
-      across(
-        c(
-          genotype, age_days, tissue, `genotype:age_days`, `genotype:tissue`,
-          `age_days:tissue`, `genotype:age_days:tissue`
-        ),
-        list(fdr = p.adjust),
-        method = 'fdr'
       )
     ) %>%
     arrange(.data[[way]]) %>%
