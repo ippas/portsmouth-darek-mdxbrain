@@ -129,8 +129,15 @@ if (!file.exists(anova_rds_path)) {
   if (Sys.info()['sysname'] == 'Windows') {
     plan(multisession)
   } else {
-    # run with: Rscript -e "
-    #   rmarkdown::render('analysis/main.Rmd', knit_root_dir = xfun::proj_root())
+    # Rscript -e "
+    #   rmarkdown::render(
+    #     'analysis/main.Rmd',
+    #     knit_root_dir = xfun::proj_root(),
+    #     output_file = base::paste0(
+    #       xfun::sans_ext('main.Rmd'), '-',
+    #       base::format(Sys.time(), \"%Y-%m-%d_%H-%M\"), '.html'
+    #     )
+    #   )
     # "
     plan(multicore)
   }
