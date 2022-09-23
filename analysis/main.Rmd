@@ -20,6 +20,12 @@ knit: (function(input, ...) {
   })
 ---
 
+
+```{r install_libraries, eval=FALSE, include=FALSE}
+library(devtools)
+devtools::install_github("zhangyuqing/sva-devel")
+```
+
 ```{r load_libraries, include=FALSE}
 library(tidyverse)
 # if (!requireNamespace("BiocManager", quietly = TRUE))
@@ -34,6 +40,7 @@ library(devtools)
 source_url("https://raw.githubusercontent.com/obigriffith/biostar-tutorials/master/Heatmaps/heatmap.3.R")
 library(RColorBrewer)
 library(tictoc)
+library(sva)
 ```
 
 ```{r read_raw_counts, include=FALSE}
@@ -66,6 +73,7 @@ counts_normalized_log <-
   counts_raw %>%
   select(starts_with('sample')) %>%
   as.matrix() %>%
+  ComBat_seq(batch = c(rep(0, 20), rep(1, 20))) %>%
   normalize.quantiles(keep.names = TRUE) %>%
   {{ log2(. + 1) }}
 
@@ -124,7 +132,7 @@ compute_anova <- function(x, template) {
 ```
 
 ```{r compute_anova, include=FALSE}
-anova_rds_path <- 'data/mdx_anova.RDS'
+anova_rds_path <- 'data/mdx_anova_cbseq.RDS'
 if (!file.exists(anova_rds_path)) {
   if (Sys.info()['sysname'] == 'Windows') {
     plan(multisession)
