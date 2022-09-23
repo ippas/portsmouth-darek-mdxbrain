@@ -24,14 +24,14 @@ knit: (function(input, ...) {
 ```{r install_libraries, eval=FALSE, include=FALSE}
 library(devtools)
 devtools::install_github("zhangyuqing/sva-devel")
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+# https://github.com/Bioconductor/bioconductor_docker/issues/22
+BiocManager::install("preprocessCore", configure.args="--disable-threading")
 ```
 
 ```{r load_libraries, include=FALSE}
 library(tidyverse)
-# if (!requireNamespace("BiocManager", quietly = TRUE))
-#     install.packages("BiocManager")
-# # https://github.com/Bioconductor/bioconductor_docker/issues/22
-# BiocManager::install("preprocessCore", configure.args="--disable-threading")
 library(preprocessCore)
 library(future.apply)
 library(rstatix)
