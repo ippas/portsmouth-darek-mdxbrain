@@ -7,6 +7,17 @@ output:
 
 date: "_Last draft: `r format(Sys.time(), '%d %B, %Y %H:%M:%S')`_"
 description: "mdx mice analysis"
+
+knit: (function(input, ...) {
+    rmarkdown::render(
+      input,
+      output_file = paste0(
+        xfun::sans_ext(input), '-', format(Sys.time(), "%Y-%m-%d_%H-%M"), '.html'
+      ),
+      knit_root_dir = xfun::proj_root(),
+      envir = globalenv()
+    )
+  })
 ---
 
 ```{r load_libraries, include=FALSE}
