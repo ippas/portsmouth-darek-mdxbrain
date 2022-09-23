@@ -69,11 +69,18 @@ counts_raw <-
     gene_synonym = `Gene Synonym`
   )
 
+cov1 <- rep(c(rep(0, 5), rep(1, 5)), 4)
+cov2 <- rep(c(rep(0, 10), rep(1, 10)), 2)
+cov3 <- c(rep(0, 20), rep(1, 20))  # At least one covariate is confounded with batch! Please remove confounded covariates and rerun ComBat-Seq
+
 counts_normalized_log <-
   counts_raw %>%
   select(starts_with('sample')) %>%
   as.matrix() %>%
-  ComBat_seq(batch = c(rep(0, 20), rep(1, 20))) %>%
+  ComBat_seq(
+    batch = c(rep(0, 20), rep(1, 20)),
+    covar_mod = cbind(cov1, cov2)
+  ) %>%
   normalize.quantiles(keep.names = TRUE) %>%
   {{ log2(. + 1) }}
 
@@ -132,7 +139,7 @@ compute_anova <- function(x, template) {
 ```
 
 ```{r compute_anova, include=FALSE}
-anova_rds_path <- 'data/mdx_anova_cbseq.RDS'
+anova_rds_path <- 'data/mdx_anova_cbseq2.RDS'
 if (!file.exists(anova_rds_path)) {
   if (Sys.info()['sysname'] == 'Windows') {
     plan(multisession)
