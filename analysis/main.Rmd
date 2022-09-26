@@ -67,7 +67,8 @@ counts_raw <-
     gene_name = `Gene name`,
     gene_type = `Gene type`,
     gene_synonym = `Gene Synonym`
-  )
+  ) %>%
+  filter(rowMeans(across(contains('sample'))) > 1)
 
 cov1 <- rep(c(rep(0, 5), rep(1, 5)), 4)
 cov2 <- rep(c(rep(0, 10), rep(1, 10)), 2)
@@ -139,7 +140,7 @@ compute_anova <- function(x, template) {
 ```
 
 ```{r compute_anova, include=FALSE}
-anova_rds_path <- 'data/mdx_anova_cbseq2.RDS'
+anova_rds_path <- 'data/mdx_3way_anova.RDS'
 if (!file.exists(anova_rds_path)) {
   if (Sys.info()['sysname'] == 'Windows') {
     plan(multisession)
