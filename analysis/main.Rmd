@@ -65,7 +65,8 @@ counts_raw <-
     gene_type = `Gene type`,
     gene_synonym = `Gene Synonym`
   ) %>%
-  filter(chr != 'MT')
+  filter(chr != 'MT') %>%
+  filter(gene_type != 'rRNA')
 
 sample_pattern <- "(sample_(\\w)(\\w)\\d)(C?)"
 sample_info <-
@@ -145,7 +146,7 @@ compute_anova <- function(x, template) {
 ```
 
 ```{r compute_anova, include=FALSE}
-anova_rds_path <- 'data/mdx_3way_anova_5fold_mt.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_5fold_mtrrna.RDS'
 if (!file.exists(anova_rds_path)) {
   if (Sys.info()['sysname'] == 'Windows') {
     plan(multisession)
