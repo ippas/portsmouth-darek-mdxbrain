@@ -127,18 +127,12 @@ sample_info <-
 
 ### Normalization
 ```{r normalize_log_counts}
-cov1 <- rep(c(rep(0, 5), rep(1, 5)), 4)
-cov2 <- rep(c(rep(0, 10), rep(1, 10)), 2)
-
 counts_normalized_log <-
   counts_raw %>%
   select(starts_with('sample')) %>%
   as.matrix() %>%
   ComBat_seq(
     batch = c(rep(0, 20), rep(1, 20)),
-    covar_mod = cbind(cov1, cov2),
-    shrink = T,
-    gene.subset.n = 1000
   ) %>%
   normalize.quantiles(keep.names = TRUE) %>%
   {{ log2(. + 1) }}
@@ -174,7 +168,7 @@ compute_anova <- function(x, template) {
 ```
 
 ```{r compute_anova, include=FALSE}
-anova_rds_path <- 'data/mdx_3way_anova_005.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_006.RDS'
 if (!file.exists(anova_rds_path)) {
   if (Sys.info()['sysname'] == 'Windows') {
     plan(multisession)
