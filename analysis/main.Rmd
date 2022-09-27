@@ -43,13 +43,10 @@ library(tictoc)
 library(sva)
 ```
 
-```{r read_raw_counts, include=FALSE}
+```{r read_data, include=FALSE}
 counts_cerebrum_raw <- read_tsv('raw/cerebrum_gene-level-counts-annotated.tsv')
 counts_cerebellum_raw <- read_tsv('raw/cerebellum_gene-level-counts-annotated.tsv')
-```
 
-### Normalization
-```{r normalize_log_counts}
 counts_raw <-
   full_join(
     counts_cerebrum_raw,
@@ -70,6 +67,37 @@ counts_raw <-
   ) %>%
   filter(rowMeans(across(contains('sample'))) > 1)
 
+sample_pattern <- "(sample_(\\w)(\\w)\\d)(C?)"
+sample_info <-
+  tibble(id = colnames(counts_raw)) %>%
+  mutate(mouse_id = str_match(id, sample_pattern)[, 2]) %>%
+  filter(!is.na(mouse_id)) %>%
+  mutate(
+    genotype = str_match(id, sample_pattern)[,3],
+    age_days = str_match(id, sample_pattern)[,4],
+    tissue = str_match(id, sample_pattern)[,5],
+  ) %>%
+  mutate(
+    genotype = if_else(
+      genotype == 'B',
+      'wt',
+      if_else(genotype == 'M', 'mdx', NULL)
+    ),
+    age_days = if_else(
+      age_days == 'D',
+      10,
+      if_else(age_days == 'W', 70, NULL)
+    ),
+    tissue = if_else(
+      tissue == 'C',
+      'cerebrum',
+      if_else(tissue == '', 'cerebellum', NULL)
+    ),
+  )
+```
+
+### Normalization
+```{r normalize_log_counts}
 cov1 <- rep(c(rep(0, 5), rep(1, 5)), 4)
 cov2 <- rep(c(rep(0, 10), rep(1, 10)), 2)
 cov3 <- c(rep(0, 20), rep(1, 20))  # At least one covariate is confounded with batch! Please remove confounded covariates and rerun ComBat-Seq
@@ -99,34 +127,6 @@ counts %>% write_csv2('results/adj_norm_counts_excel.csv')
 
 ### Analysis
 ```{r prepare_analysis, include=FALSE}
-sample_pattern <- "(sample_(\\w)(\\w)\\d)(C?)"
-sample_info <-
-  tibble(id = colnames(counts)) %>%
-  mutate(mouse_id = str_match(id, sample_pattern)[, 2]) %>%
-  filter(!is.na(mouse_id)) %>%
-  mutate(
-    genotype = str_match(id, sample_pattern)[,3],
-    age_days = str_match(id, sample_pattern)[,4],
-    tissue = str_match(id, sample_pattern)[,5],
-  ) %>%
-  mutate(
-    genotype = if_else(
-      genotype == 'B',
-      'wt',
-      if_else(genotype == 'M', 'mdx', NULL)
-    ),
-    age_days = if_else(
-      age_days == 'D',
-      10,
-      if_else(age_days == 'W', 70, NULL)
-    ),
-    tissue = if_else(
-      tissue == 'C',
-      'cerebrum',
-      if_else(tissue == '', 'cerebellum', NULL)
-    ),
-  )
-
 compute_anova <- function(x, template) {
   template %>%
     left_join(as_tibble(x, rownames = 'id'), by = 'id') %>%
