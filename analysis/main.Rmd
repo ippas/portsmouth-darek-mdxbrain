@@ -113,22 +113,7 @@ counts <-
   select(
     gene_stable_id, gene_description, chr, gene_name, gene_type, gene_synonym
   ) %>%
-  bind_cols(counts_normalized_log)#%>%
-  # filter(rowMeans(across(contains('sample'))) > 1) %>%
-   # filter out by fold
-  # pivot_longer(contains('sample'), names_to = 'sample_id', values_to = 'value') %>%
-  # left_join(rename(sample_info, sample_id = id), by = 'sample_id') %>%
-  # group_by(gene_stable_id, genotype, age_days, tissue) %>%
-  # mutate(m = mean(value)) %>%
-  # group_by(gene_stable_id) %>%
-  # mutate(
-  #   min_m = min(m),
-  #   max_m = max(m)
-  # ) %>%
-  # ungroup %>%
-  # filter(max_m - min_m > log2(2)) %>%
-  # select(-mouse_id, -genotype, -age_days, -tissue, -m, -min_m, -max_m) %>%
-  # pivot_wider(names_from = 'sample_id', values_from = 'value')
+  bind_cols(counts_normalized_log)
 ```
 
 ```{r write_counts, eval=FALSE}
@@ -154,7 +139,7 @@ compute_anova <- function(x, template) {
 ```
 
 ```{r compute_anova, include=FALSE}
-anova_rds_path <- 'data/mdx_3way_anova_001.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_002.RDS'
 if (!file.exists(anova_rds_path)) {
   if (Sys.info()['sysname'] == 'Windows') {
     plan(multisession)
@@ -196,6 +181,13 @@ if (!file.exists(anova_rds_path)) {
         .
       )
     }} %>%
+    left_join(
+      counts,
+      by = c(
+        'gene_stable_id', 'gene_description', 'chr', 'gene_name',
+        'gene_type', 'gene_synonym'
+      )
+    ) %>%
     saveRDS(anova_rds_path)
 }
 ```
@@ -216,14 +208,7 @@ groups <- c(
 )
 for (way in groups) {
   plot_data <-
-    counts %>%
-    left_join(
-      mdx_anova,
-      by = c(
-        'gene_stable_id', 'gene_description', 'chr', 'gene_name',
-        'gene_type', 'gene_synonym'
-      )
-    ) %>%
+    mdx_anova %>%
     arrange(.data[[sub('_fdr', '', way)]]) %>%
     slice(1:50)
 
