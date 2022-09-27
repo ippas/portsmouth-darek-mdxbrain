@@ -202,7 +202,7 @@ for (way in groups) {
         'gene_type', 'gene_synonym'
       )
     ) %>%
-    arrange(.data[[way]]) %>%
+    arrange(.data[[sub('_fdr', '', way)]]) %>%
     slice(1:50)
 
   row_5 <- plot_data[5, way] %>% unlist() %>% unname()
