@@ -94,7 +94,7 @@ counts_raw <-
     gene_type = `Gene type`,
     gene_synonym = `Gene Synonym`
   ) %>%
-  filter(rowMeans(across(contains('sample'))) > 5)
+  filter(rowMeans(across(contains('sample'))) > 1)
 
 sample_pattern <- "(sample_(\\w)(\\w)\\d)(C?)"
 sample_info <-
