@@ -93,6 +93,10 @@ counts <-
   bind_cols(counts_normalized_log)
 ```
 
+```{r write_counts, eval=FALSE}
+counts %>% write_csv2('results/adj_norm_counts_excel.csv')
+```
+
 ### Analysis
 ```{r prepare_analysis, include=FALSE}
 sample_pattern <- "(sample_(\\w)(\\w)\\d)(C?)"
@@ -184,6 +188,11 @@ if (!file.exists(anova_rds_path)) {
     }} %>%
     saveRDS(anova_rds_path)
 }
+```
+
+```{r write_anova_results, eval=FALSE}
+mdx_anova %>% write_csv('results/anova_results.csv')
+mdx_anova %>% write_csv2('results/anova_results_excel.csv')
 ```
 
 ```{r}
