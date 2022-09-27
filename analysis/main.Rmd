@@ -214,7 +214,10 @@ mdx_anova <- readRDS(anova_rds_path)
 ```
 
 ```{r draw_heatmaps, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
-groups <- c('genotype_fdr', 'genotype:tissue_fdr', 'genotype:age_days_fdr')
+groups <- c(
+  'genotype_fdr', 'genotype:tissue_fdr', 'genotype:age_days_fdr',
+  'genotype:age_days:tissue_fdr'
+)
 for (way in groups) {
   plot_data <-
     counts %>%
