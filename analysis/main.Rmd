@@ -118,7 +118,21 @@ counts <-
   select(
     gene_stable_id, gene_description, chr, gene_name, gene_type, gene_synonym
   ) %>%
-  bind_cols(counts_normalized_log)
+  bind_cols(counts_normalized_log) %>%
+  # filter out by fold
+  pivot_longer(contains('sample'), names_to = 'sample_id', values_to = 'value') %>%
+  left_join(rename(sample_info, sample_id = id), by = 'sample_id') %>%
+  group_by(gene_stable_id, genotype, age_days, tissue) %>%
+  mutate(m = mean(value)) %>%
+  group_by(gene_stable_id) %>%
+  mutate(
+    min_m = min(m),
+    max_m = max(m)
+  ) %>%
+  ungroup %>%
+  filter(max_m - min_m > 1) %>%
+  select(-mouse_id, -genotype, -age_days, -tissue, -m, -min_m, -max_m) %>%
+  pivot_wider(names_from = 'sample_id', values_from = 'value')
 ```
 
 ```{r write_counts, eval=FALSE}
@@ -144,7 +158,7 @@ compute_anova <- function(x, template) {
 ```
 
 ```{r compute_anova, include=FALSE}
-anova_rds_path <- 'data/mdx_3way_anova.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_2fold.RDS'
 if (!file.exists(anova_rds_path)) {
   if (Sys.info()['sysname'] == 'Windows') {
     plan(multisession)
