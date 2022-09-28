@@ -31,3 +31,35 @@ inflation <- function(ps) {
   lambda <- median(chisq) / qchisq(0.5, 1)
   lambda
 }
+
+filter_fold <- function(df, sample_info, real_fold = 2) {
+  sample_info_renamed <-
+    sample_info %>%
+    rename(
+      sample_id = id,
+      sample_genotype = genotype,
+      sample_age_days = age_days,
+      sample_tissue = tissue
+    )
+  df %>%
+    pivot_longer(
+      matches('sample_[MB][DW][1-5]C?'),
+      names_to = 'sample_id',
+      values_to = 'value'
+    ) %>%
+    left_join(sample_info_renamed, by = 'sample_id') %>%
+    group_by(gene_stable_id, sample_genotype, sample_age_days, sample_tissue) %>%
+    mutate(m = mean(value)) %>%
+    group_by(gene_stable_id) %>%
+    mutate(
+      min_m = min(m),
+      max_m = max(m)
+    ) %>%
+    ungroup %>%
+    filter(max_m - min_m > log2(real_fold)) %>%
+    select(
+      -mouse_id, -sample_genotype, -sample_age_days, -sample_tissue,
+      -m, -min_m, -max_m
+    ) %>%
+    pivot_wider(names_from = 'sample_id', values_from = 'value')
+}
