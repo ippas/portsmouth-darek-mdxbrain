@@ -43,7 +43,7 @@ source('analysis/utils.R')
 ```
 
 ```{r read_data, include=FALSE}
-anova_rds_path <- 'data/mdx_3way_anova_007.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_008.RDS'
 
 counts_cerebrum_raw <- read_tsv('raw/cerebrum_gene-level-counts-annotated.tsv')
 counts_cerebellum_raw <- read_tsv('raw/cerebellum_gene-level-counts-annotated.tsv')
@@ -66,7 +66,7 @@ counts_raw <-
     gene_type = `Gene type`,
     gene_synonym = `Gene Synonym`
   ) %>%
-  filter(rowMeans(across(contains('sample'))) > 1)
+  filter(rowMeans(across(contains('sample'))) > 5)
 
 sample_pattern <- "(sample_(\\w)(\\w)\\d)(C?)"
 sample_info <-
@@ -108,7 +108,7 @@ counts_normalized_log <-
   as.matrix() %>%
   ComBat_seq(
     batch = c(rep(0, 20), rep(1, 20)),
-    covar_mod = cbind(cov1, cov2),
+    # covar_mod = cbind(cov1, cov2),
   ) %>%
   normalize.quantiles(keep.names = TRUE) %>%
   {{ log2(. + 1) }}
