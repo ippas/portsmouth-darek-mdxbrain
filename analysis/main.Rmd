@@ -379,149 +379,108 @@ ttest_genotype_bonf <-
   mutate(p_bf = p.adjust(p, 'bonferroni')) %>%
   ungroup()
 
+fold_th <- 0
 ttest_genotype_bonf %>%
+  left_join(mdx_anova %>% select(gene_stable_id, starts_with('fold_')), by = 'gene_stable_id') %>%
+  filter(
+    age_days == 10 & tissue == 'cerebrum' & fold_10_cerebrum > fold_th
+    | age_days == 10 & tissue == 'cerebellum' & fold_10_cerebellum > fold_th
+    | age_days == 70 & tissue == 'cerebrum' & fold_70_cerebrum > fold_th
+    | age_days == 70 & tissue == 'cerebellum' & fold_70_cerebellum > fold_th
+  ) %>%
   group_by(age_days, tissue) %>%
-  filter(p_bf < 0.1) %>%
+  filter(p_bf < 0.01) %>%
   summarize(n = n(), .groups = 'drop')
 ```
 
-#### fdr < 0.001, heatmap
+#### fdr < 0.01, heatmap
 ```{r draw_heatmaps2, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
-post_hoc_genes <-
-  ttest_genotype_bonf %>%
-  filter(age_days == 10, tissue == 'cerebellum') %>%
-  filter(p_bf < 0.01) %>%
-  pull(gene_stable_id)
-
-plot_data <-
-  mdx_anova %>%
-  filter(gene_stable_id %in% post_hoc_genes)
-
-.x <- plot_data %>% select(contains('sample')) %>% as.matrix()
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- as.matrix(tibble(
-    '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
-    'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
-    'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
-))
-heatmap.3(
-    x = .x,
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 8,
-    key = FALSE,
-    lhei = c(1.3, 20),
-    labRow = pull(plot_data, gene_name),
-    cexRow = 1.2,
-    cexCol = 1.5,
-    offsetRow = 0,
+bonf_th <- 0.01
+fold_th <- 0
+groups <- list(
+  c(10, 'cerebrum'), c(10, 'cerebellum'), c(70, 'cerebrum'), c(70, 'cerebellum')
 )
 
-post_hoc_genes <-
-  ttest_genotype_bonf %>%
-  filter(age_days == 10, tissue == 'cerebrum') %>%
-  filter(p_bf < 0.01) %>%
-  pull(gene_stable_id)
-plot_data <-
-  mdx_anova %>%
-  filter(gene_stable_id %in% post_hoc_genes)
-.x <- plot_data %>% select(contains('sample')) %>% as.matrix()
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- as.matrix(tibble(
-    '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
-    'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
-    'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
-))
-heatmap.3(
-    x = .x,
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 8,
-    key = FALSE,
-    lhei = c(1.3, 20),
-    labRow = pull(plot_data, gene_name),
-    cexRow = 1.2,
-    cexCol = 1.5,
-    offsetRow = 0,
-)
+for (group in groups) {
+  post_hoc_genes <-
+    ttest_genotype_bonf %>%
+    filter(age_days == group[1], tissue == group[2]) %>%
+    filter(p_bf < bonf_th) %>%
+    pull(gene_stable_id)
 
-post_hoc_genes <-
-  ttest_genotype_bonf %>%
-  filter(age_days == 70, tissue == 'cerebellum') %>%
-  filter(p_bf < 0.01) %>%
-  pull(gene_stable_id)
-plot_data <-
-  mdx_anova %>%
-  filter(gene_stable_id %in% post_hoc_genes)
-.x <- plot_data %>% select(contains('sample')) %>% as.matrix()
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- as.matrix(tibble(
-    '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
-    'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
-    'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
-))
-heatmap.3(
-    x = .x,
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 8,
-    key = FALSE,
-    lhei = c(1.3, 20),
-    labRow = pull(plot_data, gene_name),
-    cexRow = 1.2,
-    cexCol = 1.5,
-    offsetRow = 0,
-)
+  plot_data <-
+    mdx_anova %>%
+    filter(.data[[paste0('fold_', group[1], '_', group[2])]] > fold_th) %>%
+    filter(gene_stable_id %in% post_hoc_genes)
 
-post_hoc_genes <-
-  ttest_genotype_bonf %>%
-  filter(age_days == 70, tissue == 'cerebrum') %>%
-  filter(p_bf < 0.01) %>%
-  pull(gene_stable_id)
-plot_data <-
-  mdx_anova %>%
-  filter(gene_stable_id %in% post_hoc_genes)
-.x <- plot_data %>% select(contains('sample')) %>% as.matrix()
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- as.matrix(tibble(
-    '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
-    'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
-    'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
-))
-heatmap.3(
-    x = .x,
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 8,
-    key = FALSE,
-    lhei = c(1.3, 20),
-    labRow = pull(plot_data, gene_name),
-    cexRow = 1.2,
-    cexCol = 1.5,
-    offsetRow = 0,
-)
+  .x <- plot_data %>% select(contains('sample')) %>% as.matrix()
+  .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+  .col_side_colors <- as.matrix(tibble(
+      '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
+      'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
+      'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
+  ))
+  heatmap.3(
+      x = .x,
+      Rowv = TRUE,
+      Colv = FALSE,
+      dendrogram = 'row',
+      distfun = function(x) as.dist(1-cor(t(x))),
+      scale = "row",
+      col = rev(.rdbu_ramp(24)),
+      trace = "none",
+      ColSideColors = .col_side_colors,
+      ColSideColorsSize = 8,
+      key = FALSE,
+      lhei = c(1.3, 20),
+      labRow = pull(plot_data, gene_name),
+      cexRow = 1.2,
+      cexCol = 1.5,
+      offsetRow = 0,
+  )
+}
+```
+
+#### fdr < 0.01, fold 2, heatmap
+```{r draw_heatmaps3, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
+bonf_th <- 0.01
+fold_th <- 1
+for (group in list(c(10, 'cerebrum'), c(10, 'cerebellum'), c(70, 'cerebrum'), c(70, 'cerebellum'))){
+  post_hoc_genes <-
+    ttest_genotype_bonf %>%
+    filter(age_days == group[1], tissue == group[2]) %>%
+    filter(p_bf < bonf_th) %>%
+    pull(gene_stable_id)
+
+  plot_data <-
+    mdx_anova %>%
+    filter(.data[[paste0('fold_', group[1], '_', group[2])]] > fold_th) %>%
+    filter(gene_stable_id %in% post_hoc_genes)
+
+  .x <- plot_data %>% select(contains('sample')) %>% as.matrix()
+  .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+  .col_side_colors <- as.matrix(tibble(
+      '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
+      'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
+      'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
+  ))
+  heatmap.3(
+      x = .x,
+      Rowv = TRUE,
+      Colv = FALSE,
+      dendrogram = 'row',
+      distfun = function(x) as.dist(1-cor(t(x))),
+      scale = "row",
+      col = rev(.rdbu_ramp(24)),
+      trace = "none",
+      ColSideColors = .col_side_colors,
+      ColSideColorsSize = 8,
+      key = FALSE,
+      lhei = c(1.3, 20),
+      labRow = pull(plot_data, gene_name),
+      cexRow = 1.2,
+      cexCol = 1.5,
+      offsetRow = 0,
+  )
+}
 ```
