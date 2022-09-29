@@ -397,6 +397,7 @@ groups <- list(
 )
 
 for (group in groups) {
+  print(paste0('##### age_days: ', group[1], ', tissue: ', group[2]))
   post_hoc_genes <-
     ttest_genotype_bonf %>%
     filter(age_days == group[1], tissue == group[2]) %>%
@@ -441,6 +442,7 @@ for (group in groups) {
 bonf_th <- 0.01
 fold_th <- 1
 for (group in list(c(10, 'cerebrum'), c(10, 'cerebellum'), c(70, 'cerebrum'), c(70, 'cerebellum'))){
+  print(paste0('##### age_days: ', group[1], ', tissue: ', group[2]))
   post_hoc_genes <-
     ttest_genotype_bonf %>%
     filter(age_days == group[1], tissue == group[2]) %>%
