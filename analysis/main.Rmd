@@ -441,7 +441,7 @@ for (group in groups) {
 ```{r draw_heatmaps3, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
 bonf_th <- 0.01
 fold_th <- 1
-for (group in list(c(10, 'cerebrum'), c(10, 'cerebellum'), c(70, 'cerebrum'), c(70, 'cerebellum'))){
+for (group in groups){
   print(paste0('##### age_days: ', group[1], ', tissue: ', group[2]))
   post_hoc_genes <-
     ttest_genotype_bonf %>%
