@@ -205,6 +205,95 @@ mdx_anova %>% write_csv2('results/anova_results_excel.csv')
 mdx_anova <- readRDS(anova_rds_path)
 ```
 
+```{r compute_folds}
+get_sample_names <- function(sample_info, genotype, age_days, tissue) {
+  stopifnot(genotype %in% c('wt', 'mdx'))
+  stopifnot(age_days %in% c(10, 70))
+  stopifnot(tissue %in% c('cerebrum', 'cerebellum'))
+  genotype_ = genotype
+  age_days_ = age_days
+  tissue_ = tissue
+
+  sample_info %>%
+    filter(
+      genotype == genotype_,
+      age_days == age_days_,
+      tissue == tissue_
+    ) %>%
+    pull(id)
+}
+
+mdx_anova <-
+  mdx_anova %>%
+  mutate(
+    wt_10_cerebrum_mean = apply(
+      select(., matches('sample_[MB][DW][1-5]C?')),
+      1,
+      function(x, names) {mean(x[names])},
+      names = get_sample_names(sample_info, 'wt', 10, 'cerebrum')
+    ),
+    wt_10_cerebellum_mean = apply(
+      select(., matches('sample_[MB][DW][1-5]C?')),
+      1,
+      function(x, names) {mean(x[names])},
+      names = get_sample_names(sample_info, 'wt', 10, 'cerebellum')
+    ),
+    wt_70_cerebrum_mean = apply(
+      select(., matches('sample_[MB][DW][1-5]C?')),
+      1,
+      function(x, names) {mean(x[names])},
+      names = get_sample_names(sample_info, 'wt', 70, 'cerebrum')
+    ),
+    wt_70_cerebellum_mean = apply(
+      select(., matches('sample_[MB][DW][1-5]C?')),
+      1,
+      function(x, names) {mean(x[names])},
+      names = get_sample_names(sample_info, 'wt', 70, 'cerebellum')
+    ),
+    mdx_10_cerebrum_mean = apply(
+      select(., matches('sample_[MB][DW][1-5]C?')),
+      1,
+      function(x, names) {mean(x[names])},
+      names = get_sample_names(sample_info, 'mdx', 10, 'cerebrum')
+    ),
+    mdx_10_cerebellum_mean = apply(
+      select(., matches('sample_[MB][DW][1-5]C?')),
+      1,
+      function(x, names) {mean(x[names])},
+      names = get_sample_names(sample_info, 'mdx', 10, 'cerebellum')
+    ),
+    mdx_70_cerebrum_mean = apply(
+      select(., matches('sample_[MB][DW][1-5]C?')),
+      1,
+      function(x, names) {mean(x[names])},
+      names = get_sample_names(sample_info, 'mdx', 70, 'cerebrum')
+    ),
+    mdx_70_cerebellum_mean = apply(
+      select(., matches('sample_[MB][DW][1-5]C?')),
+      1,
+      function(x, names) {mean(x[names])},
+      names = get_sample_names(sample_info, 'mdx', 70, 'cerebellum')
+    ),
+  ) %>%
+  mutate(
+    fold_10_cerebrum =
+      abs(wt_10_cerebrum_mean - mdx_10_cerebrum_mean),
+    fold_10_cerebellum =
+      abs(wt_10_cerebellum_mean - mdx_10_cerebellum_mean),
+    fold_70_cerebrum =
+      abs(wt_70_cerebrum_mean - mdx_70_cerebrum_mean),
+    fold_70_cerebellum =
+      abs(wt_70_cerebellum_mean - mdx_70_cerebellum_mean),
+    fold_max =
+      apply(
+        select(., matches('(wt|mdx)_(10|70)_(cerebrum|cerebellum)_mean')), 1, max
+      )
+    - apply(
+        select(., matches('(wt|mdx)_(10|70)_(cerebrum|cerebellum)_mean')), 1, min
+      )
+  )
+```
+
 ```{r draw_heatmaps, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
 groups <- c(
   'genotype_fdr', 'genotype:tissue_fdr', 'genotype:age_days_fdr',
