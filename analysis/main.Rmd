@@ -342,10 +342,6 @@ for (way in groups) {
 
 ### Post-hoc analysis
 
-```{r}
-mdx_anova <- readRDS(anova_rds_path)
-```
-
 ```{r compute_post_hoc}
 compute_ttest_genotype <- function(x, template) {
   template %>%
