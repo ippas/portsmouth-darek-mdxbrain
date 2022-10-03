@@ -387,6 +387,21 @@ ttest_genotype_bonf %>%
   filter(p_bf < 0.01) %>%
   summarize(n = n(), .groups = 'drop')
 ```
+```{r save_post_hoc, eval=FALSE}
+ttest_genotype_bonf_wide <- ttest_genotype_bonf %>%
+  pivot_wider(
+    names_from = c(age_days, tissue),
+    values_from = c(p, p_bf),
+    names_vary = 'slowest',
+    names_glue = 'wt vs mdx in {age_days}_{tissue} {.value}'
+  )
+
+mdx_anova %>%
+  select(-contains('sample_')) %>%
+  left_join(ttest_genotype_bonf_wide, by = 'gene_stable_id') %>%
+  write_csv('results/results_anova_posthost.csv')
+```
+
 
 #### fdr < 0.01, heatmap
 ```{r draw_heatmaps2, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
