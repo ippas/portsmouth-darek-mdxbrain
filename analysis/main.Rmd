@@ -384,8 +384,12 @@ ttest_genotype_bonf <-
   ungroup()
 
 fold_th <- 0
-ttest_genotype_bonf %>%
-  left_join(mdx_anova %>% select(gene_stable_id, starts_with('fold_')), by = 'gene_stable_id') %>%
+post_hoc_genes <-
+  ttest_genotype_bonf %>%
+  left_join(
+    mdx_anova %>% select(gene_stable_id, gene_name, starts_with('fold_')),
+    by = 'gene_stable_id'
+  ) %>%
   filter(
     age_days == 10 & tissue == 'cerebrum' & fold_10_cerebrum > fold_th
     | age_days == 10 & tissue == 'cerebellum' & fold_10_cerebellum > fold_th
@@ -393,9 +397,51 @@ ttest_genotype_bonf %>%
     | age_days == 70 & tissue == 'cerebellum' & fold_70_cerebellum > fold_th
   ) %>%
   group_by(age_days, tissue) %>%
-  filter(p_bf < 0.01) %>%
+  filter(p_bf < 0.01)
+post_hoc_genes %>%
   summarize(n = n(), .groups = 'drop')
+
+a <- 10
+t <- 'cerebrum'
+print(c(a, t))
+d1 <- post_hoc_genes %>%
+  filter(age_days == a, tissue == t) %>%
+  pull(gene_name)
+print(sort(d1))
+
+a <- 10
+t <- 'cerebellum'
+print(c(a, t))
+d2 <- post_hoc_genes %>%
+  filter(age_days == a, tissue == t) %>%
+  pull(gene_name)
+print(sort(d2))
+
+a <- 70
+t <- 'cerebrum'
+print(c(a, t))
+d3 <- post_hoc_genes %>%
+  filter(age_days == a, tissue == t) %>%
+  pull(gene_name)
+print(sort(d3))
+
+a <- 70
+t <- 'cerebellum'
+print(c(a, t))
+d4 <- post_hoc_genes %>%
+  filter(age_days == a, tissue == t) %>%
+  pull(gene_name)
+print(sort(d4))
+
+print("common genes: ")
+discard(intersect(d1, d2), is.na)
+discard(intersect(d1, d3), is.na)
+discard(intersect(d1, d4), is.na)
+discard(intersect(d2, d3), is.na)
+discard(intersect(d2, d4), is.na)
+discard(intersect(d3, d4), is.na)
 ```
+
 ```{r save_post_hoc, eval=FALSE}
 ttest_genotype_bonf_wide <- ttest_genotype_bonf %>%
   pivot_wider(
