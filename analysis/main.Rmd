@@ -295,21 +295,22 @@ mdx_anova <-
 ```
 
 ```{r draw_heatmaps, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
-groups <- c(
-  'genotype_fdr', 'genotype:tissue_fdr', 'genotype:age_days_fdr',
-  'genotype:age_days:tissue_fdr'
+groups <- list(
+  'genotype' = list('genotype_fdr', 0.01, 4),
+  'genotype:tissue' = list('genotype:tissue_fdr', 0.0005, 3),
+  'genotype:age_days' = list('genotype:age_days_fdr', 0.3, 4),
+  'genotype:age_days:tissue' = list('genotype:age_days:tissue_fdr', 0.1981, 3)
 )
-for (way in groups) {
+for (way in names(groups)) {
+  group <- groups[[way]]
+  way_fdr = group[[1]]
+  th = group[[2]]
+  k = group[[3]]
+
   plot_data <-
     mdx_anova %>%
-    arrange(.data[[sub('_fdr', '', way)]]) %>%
-    slice(1:50)
-
-  row_5 <- plot_data[5, way] %>% unlist() %>% unname()
-  row_50 <- plot_data[50, way] %>% unlist() %>% unname()
-  cat(paste0("factor: ", way, '\n\n'))
-  cat(paste0("threshold: ", row_50), '\n\n')
-  cat(paste0("top5 threshold: ", row_5), '(', pull(plot_data, gene_name)[1:5], ')')
+    arrange(.data[[way]]) %>%
+    filter(.data[[way_fdr]] < th)
 
   .x <- plot_data %>% select(contains('sample')) %>% as.matrix()
   .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
@@ -318,8 +319,9 @@ for (way in groups) {
       'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
       'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
   ))
-  heatmap.3(
+  h <- heatmap.3(
       x = .x,
+      main = paste(way, ' FDR < ', th, collapse = ''),
       Rowv = TRUE,
       Colv = FALSE,
       dendrogram = 'row',
@@ -336,6 +338,12 @@ for (way in groups) {
       cexCol = 1.5,
       offsetRow = 0,
   )
+  ct <- cutree(as.hclust(h$rowDendrogram), k = k)
+  plot_data %>%
+    mutate(ct = ct, .after = gene_name) %>%
+    select(gene_stable_id, gene_description, gene_type, gene_name, ct) %>%
+    `[`(rev(h$rowInd), TRUE) %>%
+    print()
 }
 ```
 
