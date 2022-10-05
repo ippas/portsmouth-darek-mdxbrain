@@ -336,7 +336,7 @@ for (way in names(groups)) {
       labRow = pull(plot_data, gene_name),
       cexRow = 1.2,
       cexCol = 1.5,
-      offsetRow = 0,
+      # offsetRow = 0,
   )
   ct <- cutree(as.hclust(h$rowDendrogram), k = k)
   plot_data %>%
@@ -502,7 +502,7 @@ for (group in groups) {
       labRow = pull(plot_data, gene_name),
       cexRow = 1.2,
       cexCol = 1.5,
-      offsetRow = 0,
+      # offsetRow = 0,
   )
 }
 ```
@@ -548,7 +548,7 @@ for (group in groups){
       labRow = pull(plot_data, gene_name),
       cexRow = 1.2,
       cexCol = 1.5,
-      offsetRow = 0,
+      # offsetRow = 0,
   )
 }
 ```
