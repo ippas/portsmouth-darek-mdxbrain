@@ -38,6 +38,7 @@ library(rstatix)
 library(RColorBrewer)
 library(tictoc)
 library(sva)
+library(knitr)
 
 source('analysis/utils.R')
 ```
@@ -343,6 +344,7 @@ for (way in names(groups)) {
     mutate(ct = ct, .after = gene_name) %>%
     select(gene_stable_id, gene_description, gene_type, gene_name, ct) %>%
     `[`(rev(h$rowInd), TRUE) %>%
+    kable() %>%
     print()
 }
 ```
