@@ -123,6 +123,7 @@ counts <-
 
 ```{r write_counts, eval=FALSE}
 counts %>% write_csv2('results/adj_norm_counts_excel.csv')
+counts %>% write_csv('results/data.csv')
 ```
 
 ### Analysis
