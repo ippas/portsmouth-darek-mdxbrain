@@ -509,8 +509,13 @@ ttest_genotype_bonf_wide <- ttest_genotype_bonf %>%
 
 mdx_anova_folds %>%
   select(-contains('sample_')) %>%
+  filter(genotype_fdr < 0.1) %>%
   left_join(ttest_genotype_bonf_wide, by = 'gene_stable_id') %>%
-  write_csv('results/results_anova_posthost.csv')
+  select(-genotype:-`genotype:age_days:tissue_fdr`, -ends_with('_mean')) %>%
+  select(-fold_max) %>%
+  left_join(plot_clusters, by = 'gene_stable_id') %>%
+  relocate(ct, .after = gene_name) %>%
+  write_csv('results/results_genotype_posthost.csv')
 ```
 
 
