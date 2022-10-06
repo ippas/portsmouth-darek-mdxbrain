@@ -211,7 +211,7 @@ groups <- list(
   'genotype' = list('genotype_fdr', 0.1, 4),
   'genotype:tissue' = list('genotype:tissue_fdr', 0.0005, 3),
   'genotype:age_days' = list('genotype:age_days_fdr', 0.3, 4),
-  'genotype:age_days:tissue' = list('genotype:age_days:tissue_fdr', 0.3, 3)
+  'genotype:age_days:tissue' = list('genotype:age_days:tissue_fdr', 0.1, 3)
 )
 for (way in names(groups)) {
   group <- groups[[way]]
