@@ -206,6 +206,65 @@ mdx_anova %>% write_csv2('results/anova_results_excel.csv')
 mdx_anova <- readRDS(anova_rds_path)
 ```
 
+```{r draw_heatmaps, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
+groups <- list(
+  'genotype' = list('genotype_fdr', 0.1, 4),
+  'genotype:tissue' = list('genotype:tissue_fdr', 0.0005, 3),
+  'genotype:age_days' = list('genotype:age_days_fdr', 0.3, 4),
+  'genotype:age_days:tissue' = list('genotype:age_days:tissue_fdr', 0.3, 3)
+)
+for (way in names(groups)) {
+  group <- groups[[way]]
+  way_fdr = group[[1]]
+  th = group[[2]]
+  k = group[[3]]
+
+  plot_data <-
+    mdx_anova %>%
+    arrange(.data[[way]]) %>%
+    filter(.data[[way_fdr]] < th)
+
+  .x <- plot_data %>% select(contains('sample')) %>% as.matrix()
+  .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+  .col_side_colors <- as.matrix(tibble(
+      '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
+      'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
+      'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
+  ))
+  print(paste(way, ' FDR < ', th, collapse = ''))
+  h <- heatmap.3(
+      x = .x,
+      main = paste(way, ' FDR < ', th, collapse = ''),
+      Rowv = TRUE,
+      Colv = FALSE,
+      dendrogram = 'row',
+      distfun = function(x) as.dist(1-cor(t(x))),
+      scale = "row",
+      col = rev(.rdbu_ramp(24)),
+      trace = "none",
+      ColSideColors = .col_side_colors,
+      ColSideColorsSize = 8,
+      key = FALSE,
+      lhei = c(1.5, 20),
+      labRow = pull(plot_data, gene_name),
+      cexRow = 1.2,
+      cexCol = 1.5,
+      # offsetRow = 0,
+  )
+  ct <- cutree(as.hclust(h$rowDendrogram), k = k)
+  plot_data %>%
+    mutate(ct = ct, .after = gene_name) %>%
+    select(gene_stable_id, gene_description, gene_type, gene_name, ct) %>%
+    `[`(rev(h$rowInd), TRUE) %>%
+    select(-gene_description, -gene_type) %>%
+    kable() %>%
+    print()
+}
+```
+
+
+### Post-hoc analysis
+
 ```{r compute_folds}
 get_sample_names <- function(sample_info, genotype, age_days, tissue) {
   stopifnot(genotype %in% c('wt', 'mdx'))
@@ -224,7 +283,7 @@ get_sample_names <- function(sample_info, genotype, age_days, tissue) {
     pull(id)
 }
 
-mdx_anova <-
+mdx_anova_folds <-
   mdx_anova %>%
   mutate(
     wt_10_cerebrum_mean = apply(
@@ -295,62 +354,11 @@ mdx_anova <-
   )
 ```
 
-```{r draw_heatmaps, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
-groups <- list(
-  'genotype' = list('genotype_fdr', 0.01, 4),
-  'genotype:tissue' = list('genotype:tissue_fdr', 0.0005, 3),
-  'genotype:age_days' = list('genotype:age_days_fdr', 0.3, 4),
-  'genotype:age_days:tissue' = list('genotype:age_days:tissue_fdr', 0.1981, 3)
-)
-for (way in names(groups)) {
-  group <- groups[[way]]
-  way_fdr = group[[1]]
-  th = group[[2]]
-  k = group[[3]]
-
-  plot_data <-
-    mdx_anova %>%
-    arrange(.data[[way]]) %>%
-    filter(.data[[way_fdr]] < th)
-
-  .x <- plot_data %>% select(contains('sample')) %>% as.matrix()
-  .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-  .col_side_colors <- as.matrix(tibble(
-      '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
-      'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
-      'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
-  ))
-  h <- heatmap.3(
-      x = .x,
-      main = paste(way, ' FDR < ', th, collapse = ''),
-      Rowv = TRUE,
-      Colv = FALSE,
-      dendrogram = 'row',
-      distfun = function(x) as.dist(1-cor(t(x))),
-      scale = "row",
-      col = rev(.rdbu_ramp(24)),
-      trace = "none",
-      ColSideColors = .col_side_colors,
-      ColSideColorsSize = 8,
-      key = FALSE,
-      lhei = c(1.5, 20),
-      labRow = pull(plot_data, gene_name),
-      cexRow = 1.2,
-      cexCol = 1.5,
-      # offsetRow = 0,
-  )
-  ct <- cutree(as.hclust(h$rowDendrogram), k = k)
-  plot_data %>%
-    mutate(ct = ct, .after = gene_name) %>%
-    select(gene_stable_id, gene_description, gene_type, gene_name, ct) %>%
-    `[`(rev(h$rowInd), TRUE) %>%
-    kable() %>%
-    print()
-}
+```{r}
+mdx_anova_folds %>%
+  select(-starts_with('fold_'), -starts_with('sample_')) %>%
+  write_csv('results/results_anova.csv')
 ```
-
-
-### Post-hoc analysis
 
 ```{r compute_post_hoc}
 compute_ttest_genotype <- function(x, template) {
@@ -370,7 +378,7 @@ compute_ttest_genotype <- function(x, template) {
   select(age_days, tissue, p)
 }
 
-mdx_anova_df <- as.data.frame(mdx_anova)
+mdx_anova_df <- as.data.frame(mdx_anova_folds)
 rownames(mdx_anova_df) <- mdx_anova_df$gene_stable_id
 print(mdx_anova_df %>% filter(genotype_fdr < 0.1) %>% dim)
 ttest_genotype_bonf <- future_apply(
@@ -389,7 +397,7 @@ fold_th <- 0
 post_hoc_genes <-
   ttest_genotype_bonf %>%
   left_join(
-    mdx_anova %>% select(gene_stable_id, gene_name, starts_with('fold_')),
+    mdx_anova_folds %>% select(gene_stable_id, gene_name, starts_with('fold_')),
     by = 'gene_stable_id'
   ) %>%
   filter(
@@ -453,7 +461,7 @@ ttest_genotype_bonf_wide <- ttest_genotype_bonf %>%
     names_glue = 'wt vs mdx in {age_days}_{tissue} {.value}'
   )
 
-mdx_anova %>%
+mdx_anova_folds %>%
   select(-contains('sample_')) %>%
   left_join(ttest_genotype_bonf_wide, by = 'gene_stable_id') %>%
   write_csv('results/results_anova_posthost.csv')
@@ -477,7 +485,7 @@ for (group in groups) {
     pull(gene_stable_id)
 
   plot_data <-
-    mdx_anova %>%
+    mdx_anova_folds %>%
     filter(.data[[paste0('fold_', group[1], '_', group[2])]] > fold_th) %>%
     filter(gene_stable_id %in% post_hoc_genes)
 
@@ -523,7 +531,7 @@ for (group in groups){
     pull(gene_stable_id)
 
   plot_data <-
-    mdx_anova %>%
+    mdx_anova_folds %>%
     filter(.data[[paste0('fold_', group[1], '_', group[2])]] > fold_th) %>%
     filter(gene_stable_id %in% post_hoc_genes)
 
