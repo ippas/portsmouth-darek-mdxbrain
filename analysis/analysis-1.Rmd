@@ -288,6 +288,15 @@ discard(intersect(d3, d4), is.na)
 ```
 
 ```{r draw_heatmaps_genotype, echo=FALSE, fig.align="center", fig.height=12, fig.width=13, results='asis', include=TRUE, warning=FALSE}
+ttest_genotype_bonf_wide <-
+  ttest_genotype_bonf %>%
+  pivot_wider(
+    names_from = c(age_days, tissue),
+    values_from = c(p, p_bf),
+    names_vary = 'slowest',
+    names_glue = 'wt vs mdx in {age_days}_{tissue} {.value}'
+  )
+
 plot_data <-
   mdx_anova_folds %>%
   filter(genotype_fdr < 0.1) %>%
@@ -334,14 +343,6 @@ h <- heatmap.3(
 ```
 
 ```{r save_post_hoc, eval=FALSE}
-ttest_genotype_bonf_wide <- ttest_genotype_bonf %>%
-  pivot_wider(
-    names_from = c(age_days, tissue),
-    values_from = c(p, p_bf),
-    names_vary = 'slowest',
-    names_glue = 'wt vs mdx in {age_days}_{tissue} {.value}'
-  )
-
 mdx_anova_folds %>%
   select(-contains('sample_')) %>%
   filter(genotype_fdr < 0.1) %>%
