@@ -1,0 +1,205 @@
+---
+title: "portsmouth-darek-mdxbrain"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+
+date: "_Last draft: `r format(Sys.time(), '%d %B, %Y %H:%M:%S')`_"
+description: "mdx mice analysis"
+
+knit: (function(input, ...) {
+    rmarkdown::render(
+      input,
+      output_file = paste0(
+        xfun::sans_ext(input), '-', format(Sys.time(), "%Y-%m-%d_%H-%M"), '.html'
+      ),
+      knit_root_dir = xfun::proj_root(),
+      envir = globalenv()
+    )
+  })
+---
+
+
+```{r install_libraries, eval=FALSE, include=FALSE}
+library(devtools)
+devtools::install_github("zhangyuqing/sva-devel")
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+# https://github.com/Bioconductor/bioconductor_docker/issues/22
+BiocManager::install("preprocessCore", configure.args="--disable-threading")
+```
+
+```{r load_libraries, include=FALSE}
+library(tidyverse)
+library(preprocessCore)
+library(future.apply)
+library(rstatix)
+library(RColorBrewer)
+library(tictoc)
+library(sva)
+library(knitr)
+
+source('analysis/utils.R')
+```
+
+```{r read_data, include=FALSE}
+anova_rds_path <- 'data/mdx_3way_anova_010.RDS'
+sample_info_rds_path <- 'data/sample_info.RDS'
+
+counts_cerebrum_raw <- read_tsv('raw/cerebrum_gene-level-counts-annotated.tsv')
+counts_cerebellum_raw <- read_tsv('raw/cerebellum_gene-level-counts-annotated.tsv')
+
+counts_raw <-
+  full_join(
+    counts_cerebrum_raw,
+    counts_cerebellum_raw,
+    by = c(
+      'Gene stable ID', 'Transcript stable ID', 'Exon stable ID',
+      'Gene description', 'Chromosome/scaffold name', 'Gene start (bp)',
+      'Gene end (bp)', 'Gene name', 'Gene type', 'Gene Synonym'
+    )
+  ) %>%
+  rename(
+    gene_stable_id = `Gene stable ID`,
+    gene_description = `Gene description`,
+    chr = `Chromosome/scaffold name`,
+    gene_name = `Gene name`,
+    gene_type = `Gene type`,
+    gene_synonym = `Gene Synonym`
+  ) %>%
+  filter(rowMeans(across(contains('sample'))) > 1)
+
+sample_pattern <- "(sample_(\\w)(\\w)\\d)(C?)"
+sample_info <-
+  tibble(id = colnames(counts_raw)) %>%
+  mutate(mouse_id = str_match(id, sample_pattern)[, 2]) %>%
+  filter(!is.na(mouse_id)) %>%
+  mutate(
+    genotype = str_match(id, sample_pattern)[,3],
+    age_days = str_match(id, sample_pattern)[,4],
+    tissue = str_match(id, sample_pattern)[,5],
+  ) %>%
+  mutate(
+    genotype = if_else(
+      genotype == 'B',
+      'wt',
+      if_else(genotype == 'M', 'mdx', NULL)
+    ),
+    age_days = if_else(
+      age_days == 'D',
+      10,
+      if_else(age_days == 'W', 70, NULL)
+    ),
+    tissue = if_else(
+      tissue == 'C',
+      'cerebrum',
+      if_else(tissue == '', 'cerebellum', NULL)
+    ),
+  )
+saveRDS(sample_info, sample_info_rds_path)
+```
+
+### Normalization
+```{r normalize_log_counts}
+cov1 <- rep(c(rep(0, 5), rep(1, 5)), 4)
+cov2 <- rep(c(rep(0, 10), rep(1, 10)), 2)
+
+counts_normalized_log <-
+  counts_raw %>%
+  select(starts_with('sample')) %>%
+  as.matrix() %>%
+  ComBat_seq(
+    batch = c(rep(0, 20), rep(1, 20)),
+    covar_mod = cbind(cov1, cov2),
+  ) %>%
+  normalize.quantiles(keep.names = TRUE) %>%
+  {{ log2(. + 1) }}
+
+counts <-
+  counts_raw %>%
+  select(
+    gene_stable_id, gene_description, chr, gene_name, gene_type, gene_synonym
+  ) %>%
+  bind_cols(counts_normalized_log)
+```
+
+```{r write_counts, eval=FALSE}
+counts %>% write_csv2('results/adj_norm_counts_excel.csv')
+counts %>% write_csv('results/data.csv')
+```
+
+### Analysis
+```{r prepare_analysis, include=FALSE}
+compute_anova <- function(x, template) {
+  template %>%
+    left_join(as_tibble(x, rownames = 'id'), by = 'id') %>%
+    anova_test(
+      dv = value,
+      wid = mouse_id,
+      between = c(genotype, age_days),
+      within = tissue
+    ) %>%
+    get_anova_table() %>%
+    data.frame() %>%
+    select(Effect, p) %>%
+    pivot_wider(names_from = Effect, values_from = p)
+}
+```
+
+```{r compute_anova, include=FALSE}
+if (Sys.info()['sysname'] == 'Windows') {
+  plan(multisession)
+} else {
+  # Rscript -e "
+  #   rmarkdown::render(
+  #     'analysis/main.Rmd',
+  #     knit_root_dir = xfun::proj_root(),
+  #     output_file = base::paste0(
+  #       xfun::sans_ext('main.Rmd'), '-',
+  #       base::format(Sys.time(), \"%Y-%m-%d_%H-%M\"), '.html'
+  #     )
+  #   )
+  # "
+  plan(multicore)
+}
+if (!file.exists(anova_rds_path)) {
+  mdx_anova <- future_apply(
+    counts %>% select(contains('sample')),
+    1,
+    compute_anova,
+    template = sample_info
+  )
+
+  bind_rows(mdx_anova) %>%
+    mutate(
+      across(
+        c(
+          genotype, age_days, tissue, `genotype:age_days`, `genotype:tissue`,
+          `age_days:tissue`, `genotype:age_days:tissue`
+        ),
+        list(fdr = p.adjust),
+        method = 'fdr'
+      )
+    ) %>%
+    {{
+      bind_cols(
+        counts %>% select(!contains('sample')),
+        .
+      )
+    }} %>%
+    left_join(
+      counts,
+      by = c(
+        'gene_stable_id', 'gene_description', 'chr', 'gene_name',
+        'gene_type', 'gene_synonym'
+      )
+    ) %>%
+    saveRDS(anova_rds_path)
+}
+```
+
+```{r write_anova_results, eval=FALSE}
+mdx_anova %>% write_csv('results/anova_results.csv')
+mdx_anova %>% write_csv2('results/anova_results_excel.csv')
+```
