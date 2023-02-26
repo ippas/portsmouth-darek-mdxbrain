@@ -44,7 +44,7 @@ source('analysis/utils.R')
 ```
 
 ```{r read_data, include=FALSE}
-anova_rds_path <- 'data/mdx_3way_anova_010.RDS'
+anova_rds_path <- 'data/mdx_3way_anova.RDS'
 sample_info_rds_path <- 'data/sample_info.RDS'
 
 counts_cerebrum_raw <- read_tsv('raw/cerebrum_gene-level-counts-annotated.tsv')
@@ -67,8 +67,7 @@ counts_raw <-
     gene_name = `Gene name`,
     gene_type = `Gene type`,
     gene_synonym = `Gene Synonym`
-  ) %>%
-  filter(rowMeans(across(contains('sample'))) > 1)
+  )
 
 sample_pattern <- "(sample_(\\w)(\\w)\\d)(C?)"
 sample_info <-
@@ -115,13 +114,39 @@ counts_normalized_log <-
   ) %>%
   normalize.quantiles(keep.names = TRUE) %>%
   {{ log2(. + 1) }}
+```
+
+```{r filter_data}
+abundance_th <- 3
 
 counts <-
   counts_raw %>%
   select(
     gene_stable_id, gene_description, chr, gene_name, gene_type, gene_synonym
   ) %>%
-  bind_cols(counts_normalized_log)
+
+  bind_cols(counts_normalized_log) %>%
+  mutate(
+    n_outliers = apply(
+      select(., starts_with('sample_')),
+      1,
+      function(x) {length(boxplot.stats(x)$out)}
+    ),
+  ) %>%
+  filter(
+    n_outliers < 1,
+    gene_type == 'protein_coding',
+    pmax(
+      rowMeans(across(matches('^sample_BD\\d$'))),
+      rowMeans(across(matches('^sample_BD\\dC$'))),
+      rowMeans(across(matches('^sample_BW\\d$'))),
+      rowMeans(across(matches('^sample_BW\\dC$'))),
+      rowMeans(across(matches('^sample_MD\\d$'))),
+      rowMeans(across(matches('^sample_MD\\dC$'))),
+      rowMeans(across(matches('^sample_MW\\d$'))),
+      rowMeans(across(matches('^sample_MW\\dC$')))
+    ) > abundance_th
+  )
 ```
 
 ```{r write_counts, eval=FALSE}
@@ -163,40 +188,38 @@ if (Sys.info()['sysname'] == 'Windows') {
   # "
   plan(multicore)
 }
-if (!file.exists(anova_rds_path)) {
-  mdx_anova <- future_apply(
-    counts %>% select(contains('sample')),
-    1,
-    compute_anova,
-    template = sample_info
-  )
+mdx_anova <- future_apply(
+  counts %>% select(contains('sample')),
+  1,
+  compute_anova,
+  template = sample_info
+)
 
-  bind_rows(mdx_anova) %>%
-    mutate(
-      across(
-        c(
-          genotype, age_days, tissue, `genotype:age_days`, `genotype:tissue`,
-          `age_days:tissue`, `genotype:age_days:tissue`
-        ),
-        list(fdr = p.adjust),
-        method = 'fdr'
-      )
-    ) %>%
-    {{
-      bind_cols(
-        counts %>% select(!contains('sample')),
-        .
-      )
-    }} %>%
-    left_join(
-      counts,
-      by = c(
-        'gene_stable_id', 'gene_description', 'chr', 'gene_name',
-        'gene_type', 'gene_synonym'
-      )
-    ) %>%
-    saveRDS(anova_rds_path)
-}
+bind_rows(mdx_anova) %>%
+  mutate(
+    across(
+      c(
+        genotype, age_days, tissue, `genotype:age_days`, `genotype:tissue`,
+        `age_days:tissue`, `genotype:age_days:tissue`
+      ),
+      list(fdr = p.adjust),
+      method = 'fdr'
+    )
+  ) %>%
+  {{
+    bind_cols(
+      counts %>% select(!contains('sample')),
+      .
+    )
+  }} %>%
+  left_join(
+    counts,
+    by = c(
+      'gene_stable_id', 'gene_description', 'chr', 'gene_name',
+      'gene_type', 'gene_synonym', 'n_outliers'
+    )
+  ) %>%
+  saveRDS(anova_rds_path)
 ```
 
 ```{r write_anova_results, eval=FALSE}

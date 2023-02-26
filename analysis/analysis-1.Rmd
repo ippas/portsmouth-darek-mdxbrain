@@ -32,73 +32,25 @@ library(sva)
 library(knitr)
 
 source('analysis/utils.R')
-anova_rds_path <- 'data/mdx_3way_anova_010.RDS'
+anova_rds_path <- 'data/mdx_3way_anova.RDS'
 sample_info_rds_path <- 'data/sample_info.RDS'
+
+aux_cols <- c('gene_description', 'chr', 'gene_synonym', 'gene_type')
 ```
 
-```{r}
+```{r read_anova_results}
 mdx_anova <- readRDS(anova_rds_path)
 sample_info <- readRDS(sample_info_rds_path)
-```
 
-```{r draw_heatmaps, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
-groups <- list(
-  'genotype' = list('genotype_fdr', 0.1, 4),
-  'genotype:tissue' = list('genotype:tissue_fdr', 0.0005, 3),
-  'genotype:age_days' = list('genotype:age_days_fdr', 0.3, 4),
-  'genotype:age_days:tissue' = list('genotype:age_days:tissue_fdr', 0.1, 3)
-)
-for (way in names(groups)) {
-  group <- groups[[way]]
-  way_fdr = group[[1]]
-  th = group[[2]]
-  k = group[[3]]
-
-  plot_data <-
-    mdx_anova %>%
-    arrange(.data[[way]]) %>%
-    filter(.data[[way_fdr]] < th)
-
-  .x <- plot_data %>% select(contains('sample')) %>% as.matrix()
-  .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-  .col_side_colors <- as.matrix(tibble(
-      '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
-      'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
-      'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
-  ))
-  print(paste(way, ' FDR < ', th, collapse = ''))
-  h <- heatmap.3(
-      x = .x,
-      main = paste(way, ' FDR < ', th, collapse = ''),
-      Rowv = TRUE,
-      Colv = FALSE,
-      dendrogram = 'row',
-      distfun = function(x) as.dist(1-cor(t(x))),
-      scale = "row",
-      col = rev(.rdbu_ramp(24)),
-      trace = "none",
-      ColSideColors = .col_side_colors,
-      ColSideColorsSize = 8,
-      key = FALSE,
-      lhei = c(1.5, 20),
-      labRow = pull(plot_data, gene_name),
-      cexRow = 1.2,
-      cexCol = 1.5,
-      # offsetRow = 0,
+plot_info <-
+  sample_info %>%
+  arrange(age_days, desc(genotype), desc(tissue)) %>%
+  mutate(
+    `cerebrum / cerebellum` = if_else(tissue == 'cerebrum', 'red', 'blue'),
+    `wt / mdx` = if_else(genotype == 'wt', 'yellow', 'black'),
+    `10 days / 70 days` = if_else(age_days == 10, 'green', 'magenta'),
   )
-  ct <- cutree(as.hclust(h$rowDendrogram), k = k)
-  plot_data %>%
-    mutate(ct = ct, .after = gene_name) %>%
-    select(gene_stable_id, gene_description, gene_type, gene_name, ct) %>%
-    `[`(rev(h$rowInd), TRUE) %>%
-    select(-gene_description, -gene_type) %>%
-    kable() %>%
-    print()
-}
 ```
-
-
-### Post-hoc analysis
 
 ```{r compute_folds}
 get_sample_names <- function(sample_info, genotype, age_days, tissue) {
@@ -171,39 +123,268 @@ mdx_anova_folds <-
     ),
   ) %>%
   mutate(
-    fold_10_cerebrum =
-      abs(wt_10_cerebrum_mean - mdx_10_cerebrum_mean),
-    fold_10_cerebellum =
-      abs(wt_10_cerebellum_mean - mdx_10_cerebellum_mean),
-    fold_70_cerebrum =
-      abs(wt_70_cerebrum_mean - mdx_70_cerebrum_mean),
-    fold_70_cerebellum =
-      abs(wt_70_cerebellum_mean - mdx_70_cerebellum_mean),
-    fold_max =
-      apply(
-        select(., matches('(wt|mdx)_(10|70)_(cerebrum|cerebellum)_mean')), 1, max
-      )
-    - apply(
-        select(., matches('(wt|mdx)_(10|70)_(cerebrum|cerebellum)_mean')), 1, min
-      )
+    fold_10_cerebrum = wt_10_cerebrum_mean - mdx_10_cerebrum_mean,
+    regulation_10_cerebrum = if_else(fold_10_cerebrum < 0, 'up', 'down'),
+
+    fold_10_cerebellum = wt_10_cerebellum_mean - mdx_10_cerebellum_mean,
+    regulation_10_cerebellum = if_else(fold_10_cerebellum < 0, 'up', 'down'),
+
+    fold_70_cerebrum = wt_70_cerebrum_mean - mdx_70_cerebrum_mean,
+    regulation_70_cerebrum = if_else(fold_70_cerebrum < 0, 'up', 'down'),
+
+    fold_70_cerebellum = wt_70_cerebellum_mean - mdx_70_cerebellum_mean,
+    regulation_70_cerebellum = if_else(fold_70_cerebellum < 0, 'up', 'down'),
+  ) %>%
+  mutate(
+    fold_10_cerebrum = abs(fold_10_cerebrum),
+    fold_10_cerebellum = abs(fold_10_cerebellum),
+    fold_70_cerebrum = abs(fold_70_cerebrum),
+    fold_70_cerebellum = abs(fold_70_cerebellum),
   )
 ```
 
-```{r}
-mdx_anova_folds %>%
-  select(-starts_with('fold_'), -starts_with('sample_')) %>%
-  write_csv('results/results_anova.csv')
+```{r heatmap_data}
+fold_th <- 1.3
+k_clusters <- 4
+
+heatmap_data <-
+  mdx_anova_folds %>%
+  filter(
+    pmax(
+      fold_10_cerebrum,
+      fold_10_cerebellum,
+      fold_70_cerebrum,
+      fold_70_cerebellum
+    ) > fold_th
+  ) %>%
+  mutate(
+    fdr_005 = pmin(
+      `genotype_fdr`,
+      `genotype:age_days_fdr`,
+      `genotype:tissue_fdr`,
+      `genotype:age_days:tissue_fdr`
+    ) < 0.05,
+    .after = gene_name
+  )
 ```
 
+
+```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=14, fig.width=10, results='asis', include=TRUE, warning=FALSE}
+fdr_th <- 0.3
+plot_data <-
+  heatmap_data %>%
+  filter(
+    pmin(
+      `genotype_fdr`,
+      `genotype:age_days_fdr`,
+      `genotype:tissue_fdr`,
+      `genotype:age_days:tissue_fdr`
+    ) < fdr_th
+  )
+
+.x <- plot_data %>% select(all_of(plot_info$id)) %>% as.matrix()
+rownames(.x) <- plot_data$gene_name
+.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+.col_side_colors <- plot_info %>% select(contains('/')) %>% as.matrix()
+.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
+
+# png('results/genotype-03.png', width = 1000*1.5, height = 1600*1.5, pointsize = 19)
+h <- heatmap.3(
+    x = .x,
+    main = paste(.way, ' FDR < ', fdr_th, collapse = ''),
+    Rowv = TRUE,
+    Colv = FALSE,
+    dendrogram = 'row',
+    distfun = function(x) as.dist(1-cor(t(x))),
+    scale = "row",
+    breaks = seq(-2.5, 2.5, length.out = 25),
+    col = rev(.rdbu_ramp(24)),
+    trace = "none",
+    ColSideColors = .col_side_colors,
+    ColSideColorsSize = 5,
+    key = FALSE,
+    lhei = c(1.5, 30),
+    lwid = c(1,5),
+    cexRow = 1.2,
+    cexCol = 1.5,
+    margins = c(9, 8),
+)
+# dev.off()
+
+ct <- cutree(as.hclust(h$rowDendrogram), k = k_clusters)
+mdx_anova_clusters <-
+  plot_data %>%
+  mutate(cluster_03 = ct, .after = gene_name) %>%
+  `[`(rev(h$rowInd), TRUE)
+```
+
+```{r save_clusters, eval=FALSE}
+mdx_anova_clusters %>%
+  select(
+    -all_of(aux_cols),
+    -n_outliers,
+    -genotype:-`genotype:age_days:tissue`,
+    -starts_with('sample_')
+  ) %>%
+  write_csv2('results/genotype-fdr03-clusters.csv')
+```
+
+```{r gene_count_in_clusters}
+gene_count_005 <-
+  mdx_anova_clusters %>%
+  filter(fdr_005) %>%
+  pivot_longer(starts_with('regulation'), names_to = 'regulation_in') %>%
+  group_by(cluster_03, regulation_in, value) %>%
+  summarise(n_005 = n(), .groups = 'drop')
+
+gene_count_03 <-
+  mdx_anova_clusters %>%
+  pivot_longer(starts_with('regulation'), names_to = 'regulation_in') %>%
+  group_by(cluster_03, regulation_in, value) %>%
+  summarise(n_03 = n(), .groups = 'drop')
+
+.missing_rows <- tibble(
+  'cluster_03' = c(4, 4),
+  'regulation_in' = c('regulation_10_cerebrum', 'regulation_70_cerebrum'),
+  'value' = c('up', 'up')
+)
+
+gene_count_03 %>%
+  full_join(gene_count_005, by = c("cluster_03", "regulation_in", "value")) %>%
+  full_join(.missing_rows) %>%
+  replace_na(list('n_005' = 0, 'n_03' = 0)) %>%
+  arrange(cluster_03, regulation_in, desc(value))
+```
+
+
+```{r draw_heatmap_005, echo=FALSE, fig.align="center", fig.height=10, fig.width=10, results='asis', include=TRUE, warning=FALSE}
+fdr_th <- 0.05
+
+plot_data_005 <-
+  mdx_anova_clusters %>%
+  filter(fdr_005) %>%
+  mutate(
+    pref = paste(
+      if_else(`genotype_fdr` < fdr_th, 'G', '-'),
+      if_else(`genotype:age_days_fdr` < fdr_th, 'A', '-'),
+      if_else(`genotype:tissue_fdr` < fdr_th, 'T', '-'),
+      if_else(`genotype:age_days:tissue_fdr` < fdr_th, 'GAT', '  -  '),
+      if_else(`age_days_fdr` < fdr_th, '|a', '|-')
+    ),
+    .after = fdr_005
+  ) %>%
+  arrange(cluster_03, pref)
+
+.x <- plot_data_005 %>% select(all_of(plot_info$id)) %>% as.matrix()
+rownames(.x) <- paste(plot_data_005$pref, plot_data_005$gene_name)
+.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+.row_sep <- plot_data_005 %>% group_by(cluster_03) %>% summarise(n = n()) %>% mutate(m = cumsum(n)) %>% pull(m) %>% `[`(1:k_clusters-1)
+.col_sep <- 1:7 * 5
+.col_side_colors <- plot_info %>% select(contains('/')) %>% as.matrix()
+.row_side_colors <- as.matrix(tibble(
+  cluster=c(rep(brewer.pal(k_clusters, 'Set1')[1], 24),
+            rep(brewer.pal(k_clusters, 'Set1')[2], 5),
+            rep(brewer.pal(k_clusters, 'Set1')[3], 17),
+            rep(brewer.pal(k_clusters, 'Set1')[4], 7)
+            ))) %>% t
+way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
+
+png('results/genotype-005-a.png', width = 2000, height = 2000, pointsize = 24)
+par(cex.axis=1.6)
+h <- heatmap.3(
+    x = .x,
+    main = paste(way, ' FDR < 0.05', collapse = ''),
+    Rowv = FALSE,
+    Colv = FALSE,
+    breaks = seq(-2.5, 2.5, length.out = 25),
+    distfun = function(x) as.dist(1-cor(t(x))),
+    scale = "row",
+    col = rev(.rdbu_ramp(24)),
+    trace = "none",
+    ColSideColors = .col_side_colors,
+    ColSideColorsSize = 8,
+    RowSideColors = .row_side_colors,
+    rowsep = .row_sep,
+    colsep = .col_sep,
+    key = FALSE,
+    lhei = c(1.5, 20),
+    lwid = c(1,5),
+    cexRow = 1.5,
+    cexCol = 1.5,
+    margins = c(9, 13)
+)
+dev.off()
+```
+
+```{r draw_heatmap_005, echo=FALSE, fig.align="center", fig.height=11, fig.width=5, results='asis', include=TRUE, warning=FALSE}
+.x <-
+  plot_data_005 %>%
+  select(ends_with('mean')) %>%
+  select(
+    wt_10_cerebrum_mean,
+    mdx_10_cerebrum_mean,
+    wt_70_cerebrum_mean,
+    mdx_70_cerebrum_mean,
+    wt_10_cerebellum_mean,
+    mdx_10_cerebellum_mean,
+    wt_70_cerebellum_mean,
+    mdx_70_cerebellum_mean
+  ) %>%
+  as.matrix()
+rownames(.x) <- plot_data_005$gene_name
+.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+.row_sep <- plot_data_005 %>% group_by(cluster_03) %>% summarise(n = n()) %>% mutate(m = cumsum(n)) %>% pull(m) %>% `[`(1:k_clusters-1)
+.col_sep <- 4
+.col_side_colors <- plot_info %>% group_by(genotype, age_days, tissue) %>% slice(1) %>% ungroup() %>% select(contains('/')) %>% as.matrix()
+.row_side_colors <- as.matrix(tibble(
+  cluster=c(rep(brewer.pal(k_clusters, 'Set1')[1], 24),
+            rep(brewer.pal(k_clusters, 'Set1')[2], 5),
+            rep(brewer.pal(k_clusters, 'Set1')[3], 17),
+            rep(brewer.pal(k_clusters, 'Set1')[4], 7)
+            ))) %>% t
+way = 'g / g:t / g:a / g:t:a'
+
+# png('results/genotype-005-2.png', width = 2000, height = 2000, pointsize = 24)
+par(cex.axis=1.6)
+h <- heatmap.3(
+    x = .x,
+    main = paste(way, ' FDR < 0.05', collapse = ''),
+    Rowv = FALSE,
+    Colv = FALSE,
+    breaks = seq(-2.5, 2.5, length.out = 25),
+    distfun = function(x) as.dist(1-cor(t(x))),
+    scale = "row",
+    col = rev(.rdbu_ramp(24)),
+    trace = "none",
+    ColSideColors = .col_side_colors,
+    ColSideColorsSize = 8,
+    RowSideColors = .row_side_colors,
+    RowSideColorsSize = 2,
+    rowsep = .row_sep,
+    colsep = .col_sep,
+    key = FALSE,
+    lhei = c(1.5, 20),
+    lwid = c(4,5),
+    cexRow = 1.5,
+    cexCol = 1.5,
+    margins = c(15, 8)
+)
+# dev.off()
+```
+
+
+### Post-hoc analysis
+
 ```{r compute_post_hoc}
+if (Sys.info()['sysname'] == 'Windows') {
+  plan(multisession)
+} else {
+  plan(multicore)
+}
+
 compute_ttest_genotype <- function(x, template) {
   template %>%
   left_join(as_tibble(x, rownames = 'id'), by = 'id') %>%
-  # mutate(
-  #   genotype = as.factor(genotype),
-  #   age_days = as.factor(age_days),
-  #   tissue = as.factor(tissue)
-  # ) %>%
   group_by(age_days, tissue) %>%
   pairwise_t_test(
       value ~ genotype,
@@ -212,240 +393,115 @@ compute_ttest_genotype <- function(x, template) {
   ) %>%
   select(age_days, tissue, p)
 }
+compute_ttest_age_days <- function(x, template) {
+  template %>%
+  left_join(as_tibble(x, rownames = 'id'), by = 'id') %>%
+  group_by(genotype, tissue) %>%
+  pairwise_t_test(
+      value ~ age_days,
+      pool.sd = FALSE,
+      var.equal = TRUE
+  ) %>%
+  select(genotype, tissue, p)
+}
 
-mdx_anova_df <- as.data.frame(mdx_anova_folds)
-rownames(mdx_anova_df) <- mdx_anova_df$gene_stable_id
-print(mdx_anova_df %>% filter(genotype_fdr < 0.1) %>% dim)
-ttest_genotype_bonf <- future_apply(
-    mdx_anova_df %>% filter(genotype_fdr < 0.1) %>% select(contains('sample')),
+ph_data <- as.data.frame(mdx_anova_clusters)
+rownames(ph_data) <- ph_data$gene_stable_id
+
+ttest_genotype_bonf <-
+  future_apply(
+    ph_data %>% select(contains('sample')),
     1,
     compute_ttest_genotype,
     template = sample_info
-)
-ttest_genotype_bonf <-
-  bind_rows(ttest_genotype_bonf, .id = 'gene_stable_id') %>%
+  ) %>%
+  bind_rows(.id = 'gene_stable_id')
+
+ttest_age_days_bonf <-
+  future_apply(
+    ph_data %>% select(contains('sample')),
+    1,
+    compute_ttest_age_days,
+    template = sample_info
+  ) %>%
+  bind_rows(.id = 'gene_stable_id')
+
+ttest_bonf <-
+  ttest_genotype_bonf %>%
+  bind_rows(ttest_age_days_bonf) %>%
   group_by(gene_stable_id) %>%
   mutate(p_bf = p.adjust(p, 'bonferroni')) %>%
   ungroup()
+```
 
-fold_th <- 0
-post_hoc_genes <-
-  ttest_genotype_bonf %>%
-  left_join(
-    mdx_anova_folds %>% select(gene_stable_id, gene_name, starts_with('fold_')),
-    by = 'gene_stable_id'
+
+```{r save_results}
+ttest_bonf_wider <-
+  ttest_bonf %>%
+  pivot_wider(names_from = c(genotype, age_days, tissue), values_from = c(p, p_bf)) %>%
+  rename(
+    `wt vs mdx posthoc in 10_cerebellum (p)` = p_NA_10_cerebellum,
+    `wt vs mdx posthoc in 10_cerebrum (p)` = p_NA_10_cerebrum,
+    `wt vs mdx posthoc in 70_cerebellum (p)` = p_NA_70_cerebellum,
+    `wt vs mdx posthoc in 70_cerebrum (p)` = p_NA_70_cerebrum,
+    `10 vs 70 posthoc in mdx_cerebellum (p)` = p_mdx_NA_cerebellum,
+    `10 vs 70 posthoc in mdx_cerebrum (p)` = p_mdx_NA_cerebrum,
+    `10 vs 70 posthoc in wt_cerebellum (p)` = p_wt_NA_cerebellum,
+    `10 vs 70 posthoc in wt_cerebrum (p)` = p_wt_NA_cerebrum,
+    `wt vs mdx posthoc in 10_cerebellum (bonf)` = p_bf_NA_10_cerebellum,
+    `wt vs mdx posthoc in 10_cerebrum (bonf)` = p_bf_NA_10_cerebrum,
+    `wt vs mdx posthoc in 70_cerebellum (bonf)` = p_bf_NA_70_cerebellum,
+    `wt vs mdx posthoc in 70_cerebrum (bonf)` = p_bf_NA_70_cerebrum,
+    `10 vs 70 posthoc in mdx_cerebellum (bonf)` = p_bf_mdx_NA_cerebellum,
+    `10 vs 70 posthoc in mdx_cerebrum (bonf)` = p_bf_mdx_NA_cerebrum,
+    `10 vs 70 posthoc in wt_cerebellum (bonf)` = p_bf_wt_NA_cerebellum,
+    `10 vs 70 posthoc in wt_cerebrum (bonf)` = p_bf_wt_NA_cerebrum,
+  )
+
+mdx_anova_clusters %>%
+  select(
+    -all_of(aux_cols),
+    -n_outliers,
+    -genotype:-`genotype:age_days:tissue`,
+    -starts_with('sample_'),
   ) %>%
-  filter(
-    age_days == 10 & tissue == 'cerebrum' & fold_10_cerebrum > fold_th
-    | age_days == 10 & tissue == 'cerebellum' & fold_10_cerebellum > fold_th
-    | age_days == 70 & tissue == 'cerebrum' & fold_70_cerebrum > fold_th
-    | age_days == 70 & tissue == 'cerebellum' & fold_70_cerebellum > fold_th
+  rename(
+    `genotype_fdr (anova)` = `genotype_fdr`,
+    `age_days_fdr (anova)` = `age_days_fdr`,
+    `tissue_fdr (anova)` = `tissue_fdr`,
+    `genotype:age_days_fdr (anova)` = `genotype:age_days_fdr`,
+    `genotype:tissue_fdr (anova)` = `genotype:tissue_fdr`,
+    `age_days:tissue_fdr (anova)` = `age_days:tissue_fdr`,
+    `genotype:age_days:tissue_fdr (anova)` = `genotype:age_days:tissue_fdr`,
+
+    `wt vs mdx fold in 10_cerebrum` = fold_10_cerebrum,
+    `wt vs mdx fold in 10_cerebellum` = fold_10_cerebellum,
+    `wt vs mdx fold in 70_cerebrum` = fold_70_cerebrum,
+    `wt vs mdx fold in 70_cerebellum` = fold_70_cerebellum,
+    `wt vs mdx regulation in 10_cerebrum` = regulation_10_cerebrum,
+    `wt vs mdx regulation in 10_cerebellum` = regulation_10_cerebellum,
+    `wt vs mdx regulation in 70_cerebrum` = regulation_70_cerebrum,
+    `wt vs mdx regulation in 70_cerebellum` = regulation_70_cerebellum,
   ) %>%
-  group_by(age_days, tissue) %>%
-  filter(p_bf < 0.01)
-post_hoc_genes %>%
-  summarize(n = n(), .groups = 'drop')
+  mutate(
+    `10 vs 70 fold in mdx_cerebellum` = mdx_10_cerebellum_mean - mdx_70_cerebellum_mean,
+    `10 vs 70 regulation in mdx_cerebellum` = if_else(`10 vs 70 fold in mdx_cerebellum` < 0, 'up', 'down'),
 
-a <- 10
-t <- 'cerebrum'
-print(c(a, t))
-d1 <- post_hoc_genes %>%
-  filter(age_days == a, tissue == t) %>%
-  pull(gene_name)
-print(sort(d1))
+    `10 vs 70 fold in mdx_cerebrum` = mdx_10_cerebrum_mean - mdx_70_cerebrum_mean,
+    `10 vs 70 regulation in mdx_cerebrum` = if_else(`10 vs 70 fold in mdx_cerebrum` < 0, 'up', 'down'),
 
-a <- 10
-t <- 'cerebellum'
-print(c(a, t))
-d2 <- post_hoc_genes %>%
-  filter(age_days == a, tissue == t) %>%
-  pull(gene_name)
-print(sort(d2))
+    `10 vs 70 fold in wt_cerebellum` = wt_10_cerebellum_mean - wt_70_cerebellum_mean,
+    `10 vs 70 regulation in wt_cerebellum` = if_else(`10 vs 70 fold in wt_cerebellum` < 0, 'up', 'down'),
 
-a <- 70
-t <- 'cerebrum'
-print(c(a, t))
-d3 <- post_hoc_genes %>%
-  filter(age_days == a, tissue == t) %>%
-  pull(gene_name)
-print(sort(d3))
-
-a <- 70
-t <- 'cerebellum'
-print(c(a, t))
-d4 <- post_hoc_genes %>%
-  filter(age_days == a, tissue == t) %>%
-  pull(gene_name)
-print(sort(d4))
-
-print("common genes: ")
-discard(intersect(d1, d2), is.na)
-discard(intersect(d1, d3), is.na)
-discard(intersect(d1, d4), is.na)
-discard(intersect(d2, d3), is.na)
-discard(intersect(d2, d4), is.na)
-discard(intersect(d3, d4), is.na)
-```
-
-```{r draw_heatmaps_genotype, echo=FALSE, fig.align="center", fig.height=12, fig.width=13, results='asis', include=TRUE, warning=FALSE}
-ttest_genotype_bonf_wide <-
-  ttest_genotype_bonf %>%
-  pivot_wider(
-    names_from = c(age_days, tissue),
-    values_from = c(p, p_bf),
-    names_vary = 'slowest',
-    names_glue = 'wt vs mdx in {age_days}_{tissue} {.value}'
-  )
-
-plot_data <-
-  mdx_anova_folds %>%
-  filter(genotype_fdr < 0.1) %>%
-  left_join(ttest_genotype_bonf_wide, by = 'gene_stable_id') %>%
-  filter(
-    (`wt vs mdx in 10_cerebrum p_bf` < 0.05 & abs(fold_10_cerebrum) > 1)
-    | (`wt vs mdx in 10_cerebellum p_bf` < 0.05 & abs(fold_10_cerebellum) > 1)
-    | (`wt vs mdx in 70_cerebrum p_bf` < 0.05 & abs(fold_70_cerebrum) > 1)
-    | (`wt vs mdx in 70_cerebellum p_bf` < 0.05 & abs(fold_70_cerebellum) > 1)
-  )
-
-.x <- plot_data %>% select(contains('sample')) %>% as.matrix()
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- as.matrix(tibble(
-    '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
-    'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
-    'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
-))
-h <- heatmap.3(
-    x = .x,
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 8,
-    key = FALSE,
-    lhei = c(1.5, 20),
-    labRow = pull(plot_data, gene_name),
-    cexRow = 1.2,
-    cexCol = 1.5,
-    # offsetRow = 0,
-)
-
-  ct <- cutree(as.hclust(h$rowDendrogram), k = 3)
-  plot_clusters <-
-    plot_data %>%
-    mutate(ct = ct, .after = gene_name) %>%
-    `[`(rev(h$rowInd), TRUE) %>%
-    select(gene_stable_id, ct)
-```
-
-```{r save_post_hoc, eval=FALSE}
-mdx_anova_folds %>%
-  select(-contains('sample_')) %>%
-  filter(genotype_fdr < 0.1) %>%
-  left_join(ttest_genotype_bonf_wide, by = 'gene_stable_id') %>%
-  select(-genotype:-`genotype:age_days:tissue_fdr`, -ends_with('_mean')) %>%
-  select(-fold_max) %>%
-  left_join(plot_clusters, by = 'gene_stable_id') %>%
-  relocate(ct, .after = gene_name) %>%
-  write_csv('results/results_genotype_posthost.csv')
-```
-
-
-#### fdr < 0.01, heatmap
-```{r draw_heatmaps2, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
-bonf_th <- 0.01
-fold_th <- 0
-groups <- list(
-  c(10, 'cerebrum'), c(10, 'cerebellum'), c(70, 'cerebrum'), c(70, 'cerebellum')
-)
-
-for (group in groups) {
-  print(paste0('##### age_days: ', group[1], ', tissue: ', group[2]))
-  post_hoc_genes <-
-    ttest_genotype_bonf %>%
-    filter(age_days == group[1], tissue == group[2]) %>%
-    filter(p_bf < bonf_th) %>%
-    pull(gene_stable_id)
-
-  plot_data <-
-    mdx_anova_folds %>%
-    filter(.data[[paste0('fold_', group[1], '_', group[2])]] > fold_th) %>%
-    filter(gene_stable_id %in% post_hoc_genes)
-
-  .x <- plot_data %>% select(contains('sample')) %>% as.matrix()
-  .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-  .col_side_colors <- as.matrix(tibble(
-      '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
-      'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
-      'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
-  ))
-  heatmap.3(
-      x = .x,
-      Rowv = TRUE,
-      Colv = FALSE,
-      dendrogram = 'row',
-      distfun = function(x) as.dist(1-cor(t(x))),
-      scale = "row",
-      col = rev(.rdbu_ramp(24)),
-      trace = "none",
-      ColSideColors = .col_side_colors,
-      ColSideColorsSize = 8,
-      key = FALSE,
-      lhei = c(1.3, 20),
-      labRow = pull(plot_data, gene_name),
-      cexRow = 1.2,
-      cexCol = 1.5,
-      # offsetRow = 0,
-  )
-}
-```
-
-#### fdr < 0.01, fold 2, heatmap
-```{r draw_heatmaps3, echo=FALSE, fig.align="center", fig.height=10, fig.width=13, results='asis', include=TRUE, warning=FALSE}
-bonf_th <- 0.01
-fold_th <- 1
-
-for (group in groups){
-  print(paste0('##### age_days: ', group[1], ', tissue: ', group[2]))
-  post_hoc_genes <-
-    ttest_genotype_bonf %>%
-    filter(age_days == group[1], tissue == group[2]) %>%
-    filter(p_bf < bonf_th) %>%
-    pull(gene_stable_id)
-
-  plot_data <-
-    mdx_anova_folds %>%
-    filter(.data[[paste0('fold_', group[1], '_', group[2])]] > fold_th) %>%
-    filter(gene_stable_id %in% post_hoc_genes)
-
-  .x <- plot_data %>% select(contains('sample')) %>% as.matrix()
-  .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-  .col_side_colors <- as.matrix(tibble(
-      '10 days / 70 days' = rep(c(rep('green', 5), rep('magenta', 5)), 4),
-      'wt / mdx' = rep(c(rep('yellow', 10), rep('black', 10)), 2),
-      'cerebrum / cerebellum' = c(rep('red', 20), rep('blue', 20)),
-  ))
-  heatmap.3(
-      x = .x,
-      Rowv = TRUE,
-      Colv = FALSE,
-      dendrogram = 'row',
-      distfun = function(x) as.dist(1-cor(t(x))),
-      scale = "row",
-      col = rev(.rdbu_ramp(24)),
-      trace = "none",
-      ColSideColors = .col_side_colors,
-      ColSideColorsSize = 8,
-      key = FALSE,
-      lhei = c(1.3, 20),
-      labRow = pull(plot_data, gene_name),
-      cexRow = 1.2,
-      cexCol = 1.5,
-      # offsetRow = 0,
-  )
-}
+    `10 vs 70 fold in wt_cerebrum` = wt_10_cerebrum_mean - wt_70_cerebrum_mean,
+    `10 vs 70 regulation in wt_cerebrum` = if_else(`10 vs 70 fold in wt_cerebrum` < 0, 'up', 'down'),
+  ) %>%
+  mutate(
+    `10 vs 70 fold in mdx_cerebellum` = abs(`10 vs 70 fold in mdx_cerebellum`),
+    `10 vs 70 fold in mdx_cerebrum` = abs(`10 vs 70 fold in mdx_cerebrum`),
+    `10 vs 70 fold in wt_cerebellum` = abs(`10 vs 70 fold in wt_cerebellum`),
+    `10 vs 70 fold in wt_cerebrum` = abs(`10 vs 70 fold in wt_cerebrum`),
+  ) %>%
+  full_join(ttest_bonf_wider) %>%
+  write_csv2('results/genotype-fdr03-full.csv')
 ```
