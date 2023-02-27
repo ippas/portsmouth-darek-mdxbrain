@@ -44,7 +44,7 @@ source('analysis/utils.R')
 ```
 
 ```{r read_data, include=FALSE}
-anova_rds_path <- 'data/mdx_3way_anova.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_all_factors_within_tissue.RDS'
 sample_info_rds_path <- 'data/sample_info.RDS'
 
 counts_cerebrum_raw <- read_tsv('raw/cerebrum_gene-level-counts-annotated.tsv')
@@ -159,16 +159,27 @@ counts %>% write_csv('results/data.csv')
 compute_anova <- function(x, template) {
   template %>%
     left_join(as_tibble(x, rownames = 'id'), by = 'id') %>%
-    anova_test(
-      dv = value,
-      wid = mouse_id,
-      between = c(genotype, age_days),
-      within = tissue
-    ) %>%
-    get_anova_table() %>%
-    data.frame() %>%
-    select(Effect, p) %>%
-    pivot_wider(names_from = Effect, values_from = p)
+    # { summary(aov(
+    #   value ~ genotype + age_days + tissue
+    #   + genotype*age_days + genotype*tissue + age_days*tissue
+    #   + genotype*age_days*tissue, data=.
+    # )) } %>%
+    # `[[`(1) %>%
+    # as_tibble(rownames = 'fct') %>%
+    { summary(aov(
+      value ~ genotype + age_days + tissue
+        + genotype*age_days + genotype*tissue + age_days*tissue
+        + genotype*age_days*tissue + Error(mouse_id/tissue),
+      data=.
+      )) } %>%
+    { bind_rows(
+      .[['Error: mouse_id']][[1]] %>% as_tibble(rownames = 'fct'),
+      .[['Error: mouse_id:tissue']][[1]] %>% as_tibble(rownames = 'fct')
+    ) } %>%
+    mutate(fct = trimws(fct)) %>%
+    filter(fct != 'Residuals') %>%
+    pivot_wider(id_cols = c(), names_from = fct, values_from = `Pr(>F)`) %>%
+    select(any_of(c('genotype', 'age_days', 'tissue', 'genotype:age_days', 'genotype:tissue', 'age_days:tissue', 'genotype:age_days:tissue')))
 }
 ```
 

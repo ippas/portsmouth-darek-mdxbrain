@@ -33,6 +33,10 @@ library(knitr)
 
 source('analysis/utils.R')
 anova_rds_path <- 'data/mdx_3way_anova.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_remove_factors_within_tissue.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_remove_factors_between_tissue.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_all_factors_within_tissue.RDS'
+anova_rds_path <- 'data/mdx_3way_anova_all_factors_between_tissue.RDS'
 sample_info_rds_path <- 'data/sample_info.RDS'
 
 aux_cols <- c('gene_description', 'chr', 'gene_synonym', 'gene_type')
@@ -44,11 +48,11 @@ sample_info <- readRDS(sample_info_rds_path)
 
 plot_info <-
   sample_info %>%
-  arrange(age_days, desc(genotype), desc(tissue)) %>%
+  arrange(desc(genotype), desc(tissue), age_days) %>%
   mutate(
+    `10 days / 70 days` = if_else(age_days == 10, 'green', 'magenta'),
     `cerebrum / cerebellum` = if_else(tissue == 'cerebrum', 'red', 'blue'),
     `wt / mdx` = if_else(genotype == 'wt', 'yellow', 'black'),
-    `10 days / 70 days` = if_else(age_days == 10, 'green', 'magenta'),
   )
 ```
 
@@ -258,8 +262,6 @@ gene_count_03 %>%
 
 
 ```{r draw_heatmap_005, echo=FALSE, fig.align="center", fig.height=10, fig.width=10, results='asis', include=TRUE, warning=FALSE}
-fdr_th <- 0.05
-
 plot_data_005 <-
   mdx_anova_clusters %>%
   filter(fdr_005) %>%
@@ -281,15 +283,11 @@ rownames(.x) <- paste(plot_data_005$pref, plot_data_005$gene_name)
 .row_sep <- plot_data_005 %>% group_by(cluster_03) %>% summarise(n = n()) %>% mutate(m = cumsum(n)) %>% pull(m) %>% `[`(1:k_clusters-1)
 .col_sep <- 1:7 * 5
 .col_side_colors <- plot_info %>% select(contains('/')) %>% as.matrix()
-.row_side_colors <- as.matrix(tibble(
-  cluster=c(rep(brewer.pal(k_clusters, 'Set1')[1], 24),
-            rep(brewer.pal(k_clusters, 'Set1')[2], 5),
-            rep(brewer.pal(k_clusters, 'Set1')[3], 17),
-            rep(brewer.pal(k_clusters, 'Set1')[4], 7)
-            ))) %>% t
+brewer_colors <- brewer.pal(k_clusters, 'Set1')
+.row_side_colors <- plot_data_005 %>% transmute(cluster = brewer_colors[cluster_03]) %>% as.matrix() %>% t()
 way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
 
-png('results/genotype-005-a.png', width = 2000, height = 2000, pointsize = 24)
+png('results/genotype-005-all-factors-within-tissue.png', width = 2000, height = 1800, pointsize = 24)
 par(cex.axis=1.6)
 h <- heatmap.3(
     x = .x,
@@ -316,7 +314,7 @@ h <- heatmap.3(
 dev.off()
 ```
 
-```{r draw_heatmap_005, echo=FALSE, fig.align="center", fig.height=11, fig.width=5, results='asis', include=TRUE, warning=FALSE}
+```{r draw_heatmap_005_means, echo=FALSE, fig.align="center", fig.height=11, fig.width=5, results='asis', include=TRUE, warning=FALSE}
 .x <-
   plot_data_005 %>%
   select(ends_with('mean')) %>%
@@ -336,12 +334,7 @@ rownames(.x) <- plot_data_005$gene_name
 .row_sep <- plot_data_005 %>% group_by(cluster_03) %>% summarise(n = n()) %>% mutate(m = cumsum(n)) %>% pull(m) %>% `[`(1:k_clusters-1)
 .col_sep <- 4
 .col_side_colors <- plot_info %>% group_by(genotype, age_days, tissue) %>% slice(1) %>% ungroup() %>% select(contains('/')) %>% as.matrix()
-.row_side_colors <- as.matrix(tibble(
-  cluster=c(rep(brewer.pal(k_clusters, 'Set1')[1], 24),
-            rep(brewer.pal(k_clusters, 'Set1')[2], 5),
-            rep(brewer.pal(k_clusters, 'Set1')[3], 17),
-            rep(brewer.pal(k_clusters, 'Set1')[4], 7)
-            ))) %>% t
+.row_side_colors <- plot_data_005 %>% transmute(cluster = brewer_colors[cluster_03]) %>% as.matrix() %>% t()
 way = 'g / g:t / g:a / g:t:a'
 
 # png('results/genotype-005-2.png', width = 2000, height = 2000, pointsize = 24)
