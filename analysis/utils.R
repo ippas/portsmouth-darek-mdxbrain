@@ -63,3 +63,7 @@ filter_fold <- function(df, sample_info, real_fold = 2) {
     ) %>%
     pivot_wider(names_from = 'sample_id', values_from = 'value')
 }
+
+pass <- function(x) {
+  x
+}
