@@ -43,12 +43,30 @@ library(edgeR)
 sample_info_rds_path <- 'data/sample_info.RDS'
 sample_info <- readRDS(sample_info_rds_path)
 
-counts_cerebrum_raw <- read_tsv('raw/cerebrum_gene-level-counts-annotated.tsv')
-counts_cerebellum_raw <- read_tsv('raw/cerebellum_gene-level-counts-annotated.tsv')
+counts_cerebrum_raw <-
+  read_tsv('raw/cerebrum_gene-level-counts-annotated.tsv') %>%
+  rename(
+    gene_stable_id = `Gene stable ID`,
+    gene_description = `Gene description`,
+    chr = `Chromosome/scaffold name`,
+    gene_name = `Gene name`,
+    gene_type = `Gene type`,
+    gene_synonym = `Gene Synonym`
+  )
+counts_cerebellum_raw <-
+  read_tsv('raw/cerebellum_gene-level-counts-annotated.tsv') %>%
+  rename(
+    gene_stable_id = `Gene stable ID`,
+    gene_description = `Gene description`,
+    chr = `Chromosome/scaffold name`,
+    gene_name = `Gene name`,
+    gene_type = `Gene type`,
+    gene_synonym = `Gene Synonym`
+  )
 counts_raw <-
   full_join(
-    counts_cerebrum_raw,
-    counts_cerebellum_raw,
+    read_tsv('raw/cerebrum_gene-level-counts-annotated.tsv'),
+    read_tsv('raw/cerebellum_gene-level-counts-annotated.tsv'),
     by = c(
       'Gene stable ID', 'Transcript stable ID', 'Exon stable ID',
       'Gene description', 'Chromosome/scaffold name', 'Gene start (bp)',
@@ -65,140 +83,131 @@ counts_raw <-
   )
 ```
 
-
 ```{r prepare_data}
-x <- select(counts_raw, matches('sample_'))
-
-mdx_groups <-
-  sample_info %>%
-  mutate(group = paste(genotype, age_days, tissue, sep = '_')) %>%
-  `[`(match(colnames(x), .$id), ) %>%
-  pull(group) %>%
-  factor()
-
-y <- DGEList(counts = x, group = mdx_groups)
-keep_counts <- filterByExpr(y)
-y <- y[keep_counts, , keep.lib.sizes = FALSE]
-
-
-counts_normalized_log <-
-  counts_raw %>%
-  select(starts_with('sample')) %>%
+counts_cerebrum_normalized_log <-
+  counts_cerebrum_raw %>%
+  select(starts_with('sample_')) %>%
   as.matrix() %>%
-  # ComBat_seq(
-  #   batch = c(rep(0, 20), rep(1, 20)),
-  #   covar_mod = cbind(cov1, cov2),
-  # ) %>%
   normalize.quantiles(keep.names = TRUE) %>%
   {{ log2(. + 1) }}
+counts_cerebellum_normalized_log <-
+  counts_cerebellum_raw %>%
+  select(starts_with('sample_')) %>%
+  as.matrix() %>%
+  normalize.quantiles(keep.names = TRUE) %>%
+  {{ log2(. + 1) }}
+counts_normalized_log <-
+  counts_raw %>%
+  select(starts_with('sample_')) %>%
+  as.matrix() %>%
+  normalize.quantiles(keep.names = TRUE) %>%
+  {{ log2(. + 1) }}
+
 counts <-
   counts_raw %>%
   select(
     gene_stable_id, gene_description, chr, gene_name, gene_type, gene_synonym
   ) %>%
-  bind_cols(counts_normalized_log) # %>%
-  # mutate(
-  #   n_outliers = apply(
-  #     select(., starts_with('sample_')),
-  #     1,
-  #     function(x) {length(boxplot.stats(x)$out)}
-  #   ),
-  # ) %>%
-  # filter(
-  #   n_outliers < 1,
-  #   gene_type == 'protein_coding',
-  #   pmax(
-  #     rowMeans(across(matches('^sample_BD\\d$'))),
-  #     rowMeans(across(matches('^sample_BD\\dC$'))),
-  #     rowMeans(across(matches('^sample_BW\\d$'))),
-  #     rowMeans(across(matches('^sample_BW\\dC$'))),
-  #     rowMeans(across(matches('^sample_MD\\d$'))),
-  #     rowMeans(across(matches('^sample_MD\\dC$'))),
-  #     rowMeans(across(matches('^sample_MW\\d$'))),
-  #     rowMeans(across(matches('^sample_MW\\dC$')))
-  #   ) > 3,
-  # )
+  bind_cols(counts_normalized_log)
+counts_cerebrum <-
+  counts_raw %>%
+  select(
+    gene_stable_id, gene_description, chr, gene_name, gene_type, gene_synonym
+  ) %>%
+  bind_cols(counts_cerebrum_normalized_log)
+counts_cerebellum <-
+  counts_raw %>%
+  select(
+    gene_stable_id, gene_description, chr, gene_name, gene_type, gene_synonym
+  ) %>%
+  bind_cols(counts_cerebellum_normalized_log)
 ```
 
 ```{r}
 plot_info <-
   sample_info %>%
-  arrange(desc(genotype), desc(tissue), age_days) %>%
+  arrange(age_days, desc(tissue), desc(genotype)) %>%
   mutate(
-    `10 days / 70 days` = if_else(age_days == 10, 'green', 'magenta'),
-    `cerebrum / cerebellum` = if_else(tissue == 'cerebrum', 'red', 'blue'),
     `wt / mdx` = if_else(genotype == 'wt', 'yellow', 'black'),
+    `cerebrum / cerebellum` = if_else(tissue == 'cerebrum', 'red', 'blue'),
+    `10 days / 70 days` = if_else(age_days == 10, 'green', 'magenta'),
   )
 ```
 
-
 ```{r fit_model}
-y <- calcNormFactors(y)
-design <- model.matrix(~ 0 + mdx_groups)
-y <- estimateDisp(y, design)
+edger_model <- function(x, sample_info_groups, tissue=NA){
+  mdx_groups. <-
+    sample_info_groups %>%
+    `[`(match(colnames(x), .$id), ) %>%
+    pull(group) %>%
+    factor()
 
-fit <- glmQLFit(y, design)
+  dge_counts <- DGEList(counts = x, group = mdx_groups.)
+  keep_counts <- filterByExpr(dge_counts)
+  dge_counts <- dge_counts[keep_counts, , keep.lib.sizes = FALSE]
+
+  dge_counts <- calcNormFactors(dge_counts)
+  design <- model.matrix(~ 0 + mdx_groups.)
+  dge_counts <- estimateDisp(dge_counts, design)
+
+  fit <- glmQLFit(dge_counts, design)
+
+  # contrasts
+  if (tissue %in% c('cerebrum', 'cerebellum')){
+    contrasts <- makeContrasts(
+      # overall genotype effect
+      genotype=(
+        (mdx_groups.wt_10 + mdx_groups.wt_70)
+        - (mdx_groups.mdx_10 + mdx_groups.mdx_70)
+      ),
+      levels = design
+    )
+  } else {
+    contrasts <- makeContrasts(
+      # overall genotype effect
+      genotype=
+        (
+          mdx_groups.wt_10_cerebrum + mdx_groups.wt_70_cerebrum
+          + mdx_groups.wt_10_cerebellum + mdx_groups.wt_70_cerebellum
+        )
+        - (
+          mdx_groups.mdx_10_cerebrum + mdx_groups.mdx_70_cerebrum
+          + mdx_groups.mdx_10_cerebellum + mdx_groups.mdx_70_cerebellum
+        ),
+      levels = design
+    )
+  }
+  genotype <- glmQLFTest(fit, contrast=contrasts[,"genotype"])
+
+  topTags(genotype, n = 'inf')$table %>%
+    as_tibble(rownames = 'row_index')
+}
 ```
 
-```{r}
-my.contrasts <- makeContrasts(
-  #overall genotype effect
-  genotype=
-    (
-      mdx_groupswt_10_cerebrum + mdx_groupswt_70_cerebrum
-      + mdx_groupswt_10_cerebellum + mdx_groupswt_70_cerebellum
-    )
-    - (
-      mdx_groupsmdx_10_cerebrum + mdx_groupsmdx_70_cerebrum
-      + mdx_groupsmdx_10_cerebellum + mdx_groupsmdx_70_cerebellum
-    ),
-  genotype_70_cerebrum=((mdx_groupsmdx_70_cerebrum - mdx_groupswt_70_cerebrum)),
-  genotype_70_cerebellum=((mdx_groupsmdx_70_cerebellum - mdx_groupswt_70_cerebellum)),
-  genotype_10_cerebrum=((mdx_groupsmdx_10_cerebrum - mdx_groupswt_10_cerebrum)),
-  genotype_10_cerebellum=((mdx_groupsmdx_10_cerebellum - mdx_groupswt_10_cerebellum)),
-  # genotype_age_days=((mdx_groupsmdx_70_cerebellum - mdx_groupsmdx_10_cerebellum) - (mdx_groupswt_70_cerebellum - mdx_groupswt_10_cerebellum)),
-  # genotype_tissue=((mdx_groupsmdx_10_cerebellum - mdx_groupsmdx_10_cerebrum) - (mdx_groupswt_10_cerebellum - mdx_groupswt_10_cerebrum)),
-  # genotype_age_days=((mdx_groupsmdx_70_cerebellum + mdx_groupsmdx_10_cerebellum) - (mdx_groupswt_70_cerebellum + mdx_groupswt_10_cerebellum)),
-  # genotype_tissue=((mdx_groupsmdx_10_cerebellum + mdx_groupsmdx_10_cerebrum) - (mdx_groupswt_10_cerebellum + mdx_groupswt_10_cerebrum)),
-  levels = design
-)
-genotype <- glmQLFTest(fit, contrast=my.contrasts[,"genotype"])
-genotype_70_cerebrum <- glmQLFTest(fit, contrast=my.contrasts[,"genotype_70_cerebrum"])
-genotype_70_cerebellum <- glmQLFTest(fit, contrast=my.contrasts[,"genotype_70_cerebellum"])
-genotype_10_cerebrum <- glmQLFTest(fit, contrast=my.contrasts[,"genotype_10_cerebrum"])
-genotype_10_cerebellum <- glmQLFTest(fit, contrast=my.contrasts[,"genotype_10_cerebellum"])
-# genotype_age_days <- glmQLFTest(fit, contrast=my.contrasts[,"genotype_age_days"])
-# genotype_tissue <- glmQLFTest(fit, contrast=my.contrasts[,"genotype_tissue"])
-z <- topTags(genotype, n = 'inf')
-z1 <- topTags(genotype_70_cerebrum, n = 'inf')
-z2 <- topTags(genotype_70_cerebellum, n = 'inf')
-z3 <- topTags(genotype_10_cerebrum, n = 'inf')
-z4 <- topTags(genotype_10_cerebellum, n = 'inf')
-z5 <- topTags(genotype_age_days, n = 'inf')
-z6 <- topTags(genotype_tissue, n = 'inf')
 
-g <- bind_rows(
-  z$table %>% as_tibble(rownames = 'a'),
-  # z1$table %>% as_tibble(rownames = 'a'),
-  # z2$table %>% as_tibble(rownames = 'a'),
-  # z3$table %>% as_tibble(rownames = 'a'),
-  # z4$table %>% as_tibble(rownames = 'a')
-  # z5$table %>% as_tibble(rownames = 'a'),
-  # z6$table %>% as_tibble(rownames = 'a')
-) %>%
-arrange(FDR)
+# All tissues
+
+```{r}
+x <- select(counts_raw, matches('sample_'))
+sample_info_groups <-
+  sample_info %>%
+    mutate(group = paste(genotype, age_days, tissue, sep = '_'))
+
+edger_genes <-
+  edger_model(x, sample_info_groups) %>%
+  mutate(
+    gene_name = counts_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    .before = everything()
+  ) %>%
+  select(-row_index)
 ```
 
 ```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=10, fig.width=10, results='asis', include=TRUE, warning=FALSE}
-zz <-
-  g %>%
-  filter(FDR < 0.001) %>%
-  pull(a) %>%
-  unique()
-
 plot_data <-
   counts %>%
-  `[`(as.numeric(zz), )
+  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(FDR < 0.001)
 
 .x <- plot_data %>% select(all_of(plot_info$id)) %>% as.matrix()
 rownames(.x) <- plot_data$gene_name
@@ -206,7 +215,6 @@ rownames(.x) <- plot_data$gene_name
 .col_side_colors <- plot_info %>% select(contains('/')) %>% as.matrix()
 .way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
 
-# png('results/genotype-edger.png', width = 1000*1.5, height = 1600*1.5, pointsize = 19)
 h <- heatmap.3(
     x = .x,
     main = 'edgeR',
@@ -227,19 +235,202 @@ h <- heatmap.3(
     cexCol = 1.5,
     margins = c(9, 8),
 )
-# dev.off()
 ```
 
 ```{r}
-ct <- cutree(as.hclust(h$rowDendrogram), k = 2)
-unique(ct[h$rowInd])
+ct <- cutree(as.hclust(h$rowDendrogram), k = 4)
+ct_heatmap_order <- ct[rev(h$rowInd)]
 
+clusters <- tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order)
 
-tibble(cluster = ct, gene_name = names(ct)) %>%
-  filter(cluster == 2) %>%
+clusters %>%
+  filter(cluster != 0) %>%
   pull(gene_name) %>%
   paste(collapse = '\n') %>%
   cat
+```
 
-# ct %>% as.data.frame %>% rownames_to_column('gene_name') %>%  write_csv2('edger-clusters.csv')
+
+# Cerebrum
+
+```{r edger_cerebrum}
+tiss = 'cerebrum'
+
+plot_info_cerebrum <-
+  plot_info %>%
+  filter(tissue == tiss) %>%
+  mutate(
+    `cerebrum /` = `cerebrum / cerebellum`,
+    .before = `cerebrum / cerebellum`,
+    .keep = 'unused'
+  )
+
+x <- select(counts_cerebrum_raw, starts_with('sample_'))
+sample_info_groups <-
+  sample_info %>%
+  filter(tissue == tiss) %>%
+  mutate(group = paste(genotype, age_days, sep = '_'))
+
+edger_genes <-
+  edger_model(x, sample_info_groups, tiss) %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    .before = everything()
+  ) %>%
+  select(-row_index)
+```
+
+```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=12, fig.width=8, results='asis', include=TRUE, warning=FALSE}
+fdr_th <- 0.00005
+
+plot_data <-
+  counts_cerebrum %>%
+  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(FDR < fdr_th) %>%
+  filter(gene_type == 'protein_coding') %>%
+  `[`(-duplicated, )
+
+.x <- plot_data %>% select(any_of(plot_info_cerebrum$id)) %>% as.matrix()
+rownames(.x) <- plot_data$gene_name
+.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+.col_side_colors <- plot_info_cerebrum %>% select(contains('/')) %>% as.matrix()
+.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
+
+path <- paste0('results/genotype-edger-', tiss, '.png')
+png(path, width = 1000*2.0, height = 2200*2.0, pointsize = 25)
+h_cerebrum <- heatmap.3(
+    x = .x,
+    main = paste('genotype effect in ', tiss, ' FDR <', format(fdr_th, scientific = FALSE)),
+    Rowv = TRUE,
+    Colv = FALSE,
+    dendrogram = 'row',
+    distfun = function(x) as.dist(1-cor(t(x))),
+    scale = "row",
+    breaks = seq(-2.5, 2.5, length.out = 25),
+    col = rev(.rdbu_ramp(24)),
+    trace = "none",
+    ColSideColors = .col_side_colors,
+    ColSideColorsSize = 5,
+    key = FALSE,
+    lhei = c(1.0, 40),
+    lwid = c(1,5),
+    cexRow = 1.3,
+    cexCol = 1.3,
+    margins = c(9, 8),
+)
+dev.off()
+```
+
+```{r}
+ct <- cutree(as.hclust(h_cerebrum$rowDendrogram), h = 0.002)
+tibble(
+  cluster=ct,
+  gene_name=names(ct),
+  m=h_cerebrum$rowMeans
+) %>%
+group_by(cluster) %>%
+filter(n() > 1) %>%
+arrange(-m)
+
+duplicated <- which((ct == 15) & names(ct) != 'Pcdha4')
+```
+
+```{r}
+ct <- cutree(as.hclust(h_cerebrum$rowDendrogram), k = 4)
+ct_heatmap_order <- ct[rev(h_cerebrum$rowInd)]
+
+# tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+#   filter(cluster != 0) %>%
+#   pull(gene_name) %>%
+#   paste(collapse = '\n') %>%
+#   cat
+
+tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+  write_csv(paste0('results/edger-', tiss, '-clusters.csv'))
+```
+
+
+# Cerebellum
+
+```{r edger_cerebellum}
+tiss = 'cerebellum'
+
+plot_info_cerebellum <-
+  plot_info %>%
+  filter(tissue == tiss) %>%
+  mutate(
+    `/ cerebellum` = `cerebrum / cerebellum`,
+    .before = `cerebrum / cerebellum`,
+    .keep = 'unused'
+  )
+
+x <- select(counts_cerebellum_raw, starts_with('sample_'))
+sample_info_groups <-
+  sample_info %>%
+  filter(tissue == tiss) %>%
+  mutate(group = paste(genotype, age_days, sep = '_'))
+
+edger_genes <-
+  edger_model(x, sample_info_groups, tiss) %>%
+  mutate(
+    gene_name = counts_cerebellum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebellum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    .before = everything()
+  ) %>%
+  select(-row_index)
+```
+
+```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=13, fig.width=8, results='asis', include=TRUE, warning=FALSE}
+fdr_th <- 0.1
+
+plot_data <-
+  counts_cerebellum %>%
+  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(FDR < fdr_th) %>%
+  filter(gene_type == 'protein_coding')
+
+.x <- plot_data %>% select(any_of(plot_info_cerebellum$id)) %>% as.matrix()
+rownames(.x) <- plot_data$gene_name
+.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+.col_side_colors <- plot_info_cerebellum %>% select(contains('/')) %>% as.matrix()
+.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
+
+path <- paste0('results/genotype-edger-', tiss, '.png')
+png(path, width = 1000*1.0, height = 1800*1.0, pointsize = 20)
+h_cerebellum <- heatmap.3(
+    x = .x,
+    main = paste('genotype effect in ', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
+    Rowv = TRUE,
+    Colv = FALSE,
+    dendrogram = 'row',
+    distfun = function(x) as.dist(1-cor(t(x))),
+    scale = "row",
+    breaks = seq(-2.5, 2.5, length.out = 25),
+    col = rev(.rdbu_ramp(24)),
+    trace = "none",
+    ColSideColors = .col_side_colors,
+    ColSideColorsSize = 6,
+    key = FALSE,
+    lhei = c(1.5, 20),
+    lwid = c(1,5),
+    cexRow = 1.3,
+    cexCol = 1.3,
+    margins = c(9, 8),
+)
+dev.off()
+```
+
+```{r}
+ct <- cutree(as.hclust(h_cerebellum$rowDendrogram), k = 4)
+ct_heatmap_order <- ct[rev(h_cerebellum$rowInd)]
+
+# tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+#   filter(cluster != 0) %>%
+#   pull(gene_name) %>%
+#   paste(collapse = '\n') %>%
+#   cat
+
+tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+  write_csv(paste0('results/edger-', tiss, '-clusters.csv'))
 ```
