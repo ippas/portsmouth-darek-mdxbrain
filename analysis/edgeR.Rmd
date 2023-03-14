@@ -135,7 +135,7 @@ plot_info <-
 ```
 
 ```{r fit_model}
-edger_model <- function(x, sample_info_groups, tissue=NA){
+edger_model <- function(x, sample_info_groups, tissue=NA, contrast='genotype'){
   mdx_groups. <-
     sample_info_groups %>%
     `[`(match(colnames(x), .$id), ) %>%
@@ -160,6 +160,8 @@ edger_model <- function(x, sample_info_groups, tissue=NA){
         (mdx_groups.wt_10 + mdx_groups.wt_70)
         - (mdx_groups.mdx_10 + mdx_groups.mdx_70)
       ),
+      genotype_10=mdx_groups.wt_10 - mdx_groups.mdx_10,
+      genotype_70=mdx_groups.wt_70 - mdx_groups.mdx_70,
       levels = design
     )
   } else {
@@ -177,9 +179,9 @@ edger_model <- function(x, sample_info_groups, tissue=NA){
       levels = design
     )
   }
-  genotype <- glmQLFTest(fit, contrast=contrasts[,"genotype"])
+  results <- glmQLFTest(fit, contrast=contrasts[, contrast])
 
-  topTags(genotype, n = 'inf')$table %>%
+  topTags(results, n = 'inf')$table %>%
     as_tibble(rownames = 'row_index')
 }
 ```
