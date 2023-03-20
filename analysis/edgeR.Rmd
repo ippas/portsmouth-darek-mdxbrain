@@ -289,6 +289,75 @@ edger_genes <-
   select(-row_index)
 ```
 
+```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=12, fig.width=8, results='asis', include=TRUE, warning=FALSE}
+fdr_th <- 0.00005
+
+plot_data <-
+  counts_cerebrum %>%
+  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(FDR < fdr_th) %>%
+  filter(gene_type == 'protein_coding') %>%
+  `[`(-duplicated, )
+
+.x <- plot_data %>% select(any_of(plot_info_cerebrum$id)) %>% as.matrix()
+rownames(.x) <- plot_data$gene_name
+.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+.col_side_colors <- plot_info_cerebrum %>% select(contains('/')) %>% as.matrix()
+.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
+
+path <- paste0('results/genotype-edger-', tiss, '.png')
+png(path, width = 1000*2.0, height = 2200*2.0, pointsize = 25)
+h_cerebrum <- heatmap.3(
+    x = .x,
+    main = paste('genotype effect in ', tiss, ' FDR <', format(fdr_th, scientific = FALSE)),
+    Rowv = TRUE,
+    Colv = FALSE,
+    dendrogram = 'row',
+    distfun = function(x) as.dist(1-cor(t(x))),
+    scale = "row",
+    breaks = seq(-2.5, 2.5, length.out = 25),
+    col = rev(.rdbu_ramp(24)),
+    trace = "none",
+    ColSideColors = .col_side_colors,
+    ColSideColorsSize = 5,
+    key = FALSE,
+    lhei = c(1.0, 40),
+    lwid = c(1,5),
+    cexRow = 1.3,
+    cexCol = 1.3,
+    margins = c(9, 8),
+)
+dev.off()
+```
+
+```{r}
+ct <- cutree(as.hclust(h_cerebrum$rowDendrogram), h = 0.002)
+tibble(
+  cluster=ct,
+  gene_name=names(ct),
+  m=h_cerebrum$rowMeans
+) %>%
+group_by(cluster) %>%
+filter(n() > 1) %>%
+arrange(-m)
+
+duplicated <- which((ct == 15) & names(ct) != 'Pcdha4')
+```
+
+```{r}
+ct <- cutree(as.hclust(h_cerebrum$rowDendrogram), k = 4)
+ct_heatmap_order <- ct[rev(h_cerebrum$rowInd)]
+
+# tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+#   filter(cluster != 0) %>%
+#   pull(gene_name) %>%
+#   paste(collapse = '\n') %>%
+#   cat
+
+tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+  write_csv(paste0('results/edger-', tiss, '-clusters.csv'))
+```
+
 ```{r venn}
 th <- 0.05
 venn_age_days_genes <-
@@ -361,6 +430,9 @@ ggplot() +
     show_percentage = FALSE,
     show_outside = 'none',
   ) +
+  labs(
+    caption = paste('Number of genes regulated by age or genotype in', tiss, '; FDR <', th)
+  ) +
   coord_fixed() +
   theme_void()
 ggsave(
@@ -371,74 +443,92 @@ ggsave(
 )
 ```
 
-```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=12, fig.width=8, results='asis', include=TRUE, warning=FALSE}
-fdr_th <- 0.00005
-
-plot_data <-
-  counts_cerebrum %>%
-  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
-  filter(FDR < fdr_th) %>%
+```{r venn_10_70}
+th <- 0.1
+venn_genotype_10_genes <-
+  edger_model(x, sample_info_groups, tiss, contrast = 'genotype_10') %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
   filter(gene_type == 'protein_coding') %>%
-  `[`(-duplicated, )
+  select(-row_index)
 
-.x <- plot_data %>% select(any_of(plot_info_cerebrum$id)) %>% as.matrix()
-rownames(.x) <- plot_data$gene_name
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- plot_info_cerebrum %>% select(contains('/')) %>% as.matrix()
-.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
+venn_genotype_70_genes <-
+  edger_model(x, sample_info_groups, tiss, contrast = 'genotype_70') %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
+  filter(gene_type == 'protein_coding') %>%
+  select(-row_index)
 
-path <- paste0('results/genotype-edger-', tiss, '.png')
-png(path, width = 1000*2.0, height = 2200*2.0, pointsize = 25)
-h_cerebrum <- heatmap.3(
-    x = .x,
-    main = paste('genotype effect in ', tiss, ' FDR <', format(fdr_th, scientific = FALSE)),
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    breaks = seq(-2.5, 2.5, length.out = 25),
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 5,
-    key = FALSE,
-    lhei = c(1.0, 40),
-    lwid = c(1,5),
-    cexRow = 1.3,
-    cexCol = 1.3,
-    margins = c(9, 8),
+
+venn_plot_data <-
+  full_join(
+    venn_genotype_10_genes,
+    venn_genotype_70_genes,
+    by = c('gene_name', 'gene_stable_id'),
+    suffix = c('.genotype_10', '.genotype_70')
+  ) %>%
+  mutate(
+    genotype_10 = FDR.genotype_10 < th,
+    genotype_70 = FDR.genotype_70 < th,
+    genotype_10_regulation = if_else(logFC.genotype_10 < 0, 'up', 'down'),
+    genotype_70_regulation = if_else(logFC.genotype_70 < 0, 'up', 'down'),
+  )
+
+.venn_genotype_10_name <- venn_plot_data %>%
+  filter(genotype_10) %>%
+  group_by(genotype_10_regulation) %>%
+  summarise(n = n()) %>%
+  arrange(desc(genotype_10_regulation)) %>%
+  mutate(name = paste(genotype_10_regulation, n)) %>%
+  pull(name) %>%
+  paste0(collapse = ' / ') %>%
+  { paste0('genotype 10 (', paste0(., collapse = ' / '), ')') }
+.venn_genotype_70_name <- venn_plot_data %>%
+  filter(genotype_70) %>%
+  group_by(genotype_70_regulation) %>%
+  summarise(n = n()) %>%
+  arrange(desc(genotype_70_regulation)) %>%
+  mutate(name = paste(genotype_70_regulation, n)) %>%
+  pull(name) %>%
+  { paste0('genotype 70 (', paste0(., collapse = ' / '), ')') }
+
+ggplot() +
+  geom_text(
+    mapping = aes(x = 0, y = 1.8),
+    label = tiss,
+    size = 6
+  ) +
+  geom_venn(
+    aes_string(A = 'genotype_10', B = 'genotype_70'),
+    data = venn_plot_data,
+    fill_color = c('#0073C2FF', '#EFC000FF'),
+    set_names = c(.venn_genotype_10_name, .venn_genotype_70_name),
+    set_name_size = 3,
+    auto_scale = TRUE,
+    show_percentage = FALSE,
+    show_outside = 'none',
+  ) +
+  labs(
+    caption = paste('Number of genes regulated by genotype in 10 or 70 days old mice in', tiss, '; FDR <', th)
+  ) +
+  coord_fixed() +
+  theme_void()
+ggsave(
+  paste0('results/venn-', tiss, '-in-age-', th, '.png'),
+  bg = 'white',
+  width = 9,
+  height = 6
 )
-dev.off()
 ```
 
-```{r}
-ct <- cutree(as.hclust(h_cerebrum$rowDendrogram), h = 0.002)
-tibble(
-  cluster=ct,
-  gene_name=names(ct),
-  m=h_cerebrum$rowMeans
-) %>%
-group_by(cluster) %>%
-filter(n() > 1) %>%
-arrange(-m)
-
-duplicated <- which((ct == 15) & names(ct) != 'Pcdha4')
-```
-
-```{r}
-ct <- cutree(as.hclust(h_cerebrum$rowDendrogram), k = 4)
-ct_heatmap_order <- ct[rev(h_cerebrum$rowInd)]
-
-# tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
-#   filter(cluster != 0) %>%
-#   pull(gene_name) %>%
-#   paste(collapse = '\n') %>%
-#   cat
-
-tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
-  write_csv(paste0('results/edger-', tiss, '-clusters.csv'))
-```
 
 
 # Cerebellum
@@ -469,6 +559,60 @@ edger_genes <-
     .before = everything()
   ) %>%
   select(-row_index)
+```
+
+```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=13, fig.width=8, results='asis', include=TRUE, warning=FALSE}
+fdr_th <- 0.1
+
+plot_data <-
+  counts_cerebellum %>%
+  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(FDR < fdr_th) %>%
+  filter(gene_type == 'protein_coding')
+
+.x <- plot_data %>% select(any_of(plot_info_cerebellum$id)) %>% as.matrix()
+rownames(.x) <- plot_data$gene_name
+.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
+.col_side_colors <- plot_info_cerebellum %>% select(contains('/')) %>% as.matrix()
+.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
+
+path <- paste0('results/genotype-edger-', tiss, '.png')
+png(path, width = 1000*1.0, height = 1800*1.0, pointsize = 20)
+h_cerebellum <- heatmap.3(
+    x = .x,
+    main = paste('genotype effect in ', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
+    Rowv = TRUE,
+    Colv = FALSE,
+    dendrogram = 'row',
+    distfun = function(x) as.dist(1-cor(t(x))),
+    scale = "row",
+    breaks = seq(-2.5, 2.5, length.out = 25),
+    col = rev(.rdbu_ramp(24)),
+    trace = "none",
+    ColSideColors = .col_side_colors,
+    ColSideColorsSize = 6,
+    key = FALSE,
+    lhei = c(1.5, 20),
+    lwid = c(1,5),
+    cexRow = 1.3,
+    cexCol = 1.3,
+    margins = c(9, 8),
+)
+dev.off()
+```
+
+```{r}
+ct <- cutree(as.hclust(h_cerebellum$rowDendrogram), k = 4)
+ct_heatmap_order <- ct[rev(h_cerebellum$rowInd)]
+
+# tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+#   filter(cluster != 0) %>%
+#   pull(gene_name) %>%
+#   paste(collapse = '\n') %>%
+#   cat
+
+tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+  write_csv(paste0('results/edger-', tiss, '-clusters.csv'))
 ```
 
 ```{r venn2}
@@ -536,12 +680,15 @@ ggplot() +
   geom_venn(
     aes_string(A = 'age', B = 'genotype'),
     data = venn_plot_data,
-    fill_color = c('#0073C2FF', '#EFC000FF'),
+    fill_color = c('#984EA3FF', '#FF7F00FF'),
     set_names = c(.venn_age_name, .venn_genotype_name),
     set_name_size = 4,
     auto_scale = TRUE,
     show_percentage = FALSE,
     show_outside = 'none',
+  ) +
+  labs(
+    caption = paste('Number of genes regulated by age or genotype in', tiss, '; FDR <', th)
   ) +
   coord_fixed() +
   theme_void()
@@ -553,56 +700,88 @@ ggsave(
 )
 ```
 
-```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=13, fig.width=8, results='asis', include=TRUE, warning=FALSE}
-fdr_th <- 0.1
+```{r venn_10_702}
+th <- 0.1
+venn_genotype_10_genes <-
+  edger_model(x, sample_info_groups, tiss, contrast = 'genotype_10') %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
+  filter(gene_type == 'protein_coding') %>%
+  select(-row_index)
 
-plot_data <-
-  counts_cerebellum %>%
-  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
-  filter(FDR < fdr_th) %>%
-  filter(gene_type == 'protein_coding')
+venn_genotype_70_genes <-
+  edger_model(x, sample_info_groups, tiss, contrast = 'genotype_70') %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
+  filter(gene_type == 'protein_coding') %>%
+  select(-row_index)
 
-.x <- plot_data %>% select(any_of(plot_info_cerebellum$id)) %>% as.matrix()
-rownames(.x) <- plot_data$gene_name
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- plot_info_cerebellum %>% select(contains('/')) %>% as.matrix()
-.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
 
-path <- paste0('results/genotype-edger-', tiss, '.png')
-png(path, width = 1000*1.0, height = 1800*1.0, pointsize = 20)
-h_cerebellum <- heatmap.3(
-    x = .x,
-    main = paste('genotype effect in ', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    breaks = seq(-2.5, 2.5, length.out = 25),
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 6,
-    key = FALSE,
-    lhei = c(1.5, 20),
-    lwid = c(1,5),
-    cexRow = 1.3,
-    cexCol = 1.3,
-    margins = c(9, 8),
+venn_plot_data <-
+  full_join(
+    venn_genotype_10_genes,
+    venn_genotype_70_genes,
+    by = c('gene_name', 'gene_stable_id'),
+    suffix = c('.genotype_10', '.genotype_70')
+  ) %>%
+  mutate(
+    genotype_10 = FDR.genotype_10 < th,
+    genotype_70 = FDR.genotype_70 < th,
+    genotype_10_regulation = if_else(logFC.genotype_10 < 0, 'up', 'down'),
+    genotype_70_regulation = if_else(logFC.genotype_70 < 0, 'up', 'down'),
+  )
+
+.venn_genotype_10_name <- venn_plot_data %>%
+  filter(genotype_10) %>%
+  group_by(genotype_10_regulation) %>%
+  summarise(n = n()) %>%
+  arrange(desc(genotype_10_regulation)) %>%
+  mutate(name = paste(genotype_10_regulation, n)) %>%
+  pull(name) %>%
+  paste0(collapse = ' / ') %>%
+  { paste0('genotype 10 (', paste0(., collapse = ' / '), ')') }
+.venn_genotype_70_name <- venn_plot_data %>%
+  filter(genotype_70) %>%
+  group_by(genotype_70_regulation) %>%
+  summarise(n = n()) %>%
+  arrange(desc(genotype_70_regulation)) %>%
+  mutate(name = paste(genotype_70_regulation, n)) %>%
+  pull(name) %>%
+  { paste0('genotype 70 (', paste0(., collapse = ' / '), ')') }
+
+ggplot() +
+  geom_text(
+    mapping = aes(x = 0, y = 1.8),
+    label = tiss,
+    size = 6
+  ) +
+  geom_venn(
+    aes_string(A = 'genotype_10', B = 'genotype_70'),
+    data = venn_plot_data,
+    fill_color = c('#984EA3FF', '#FF7F00FF'),
+    set_names = c(.venn_genotype_10_name, .venn_genotype_70_name),
+    set_name_size = 3,
+    auto_scale = TRUE,
+    show_percentage = FALSE,
+    show_outside = 'none',
+  ) +
+  labs(
+    caption = paste('Number of genes regulated by genotype in 10 or 70 days old mice in', tiss, '; FDR <', th)
+  ) +
+  coord_fixed() +
+  theme_void()
+ggsave(
+  paste0('results/venn-', tiss, '-in-age-', th, '.png'),
+  bg = 'white',
+  width = 9,
+  height = 6
 )
-dev.off()
-```
-
-```{r}
-ct <- cutree(as.hclust(h_cerebellum$rowDendrogram), k = 4)
-ct_heatmap_order <- ct[rev(h_cerebellum$rowInd)]
-
-# tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
-#   filter(cluster != 0) %>%
-#   pull(gene_name) %>%
-#   paste(collapse = '\n') %>%
-#   cat
-
-tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
-  write_csv(paste0('results/edger-', tiss, '-clusters.csv'))
 ```
