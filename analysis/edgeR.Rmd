@@ -24,6 +24,7 @@ knit: (function(input, ...) {
 ```{r install_libraries, eval=FALSE, include=FALSE}
 library(devtools)
 devtools::install_github("zhangyuqing/sva-devel")
+devtools::install_github("yanlinlin82/ggvenn")
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 # https://github.com/Bioconductor/bioconductor_docker/issues/22
@@ -37,6 +38,7 @@ library(RColorBrewer)
 
 source('analysis/utils.R')
 library(edgeR)
+library(ggvenn)
 ```
 
 ```{r read_data}
@@ -162,6 +164,10 @@ edger_model <- function(x, sample_info_groups, tissue=NA, contrast='genotype'){
       ),
       genotype_10=mdx_groups.wt_10 - mdx_groups.mdx_10,
       genotype_70=mdx_groups.wt_70 - mdx_groups.mdx_70,
+      age_days=(
+        (mdx_groups.wt_10 + mdx_groups.mdx_10)
+        - (mdx_groups.wt_70 + mdx_groups.mdx_70)
+      ),
       levels = design
     )
   } else {
@@ -274,13 +280,74 @@ sample_info_groups <-
   mutate(group = paste(genotype, age_days, sep = '_'))
 
 edger_genes <-
-  edger_model(x, sample_info_groups, tiss) %>%
+  edger_model(x, sample_info_groups, tiss, contrast = 'genotype') %>%
   mutate(
     gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
     gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
     .before = everything()
   ) %>%
   select(-row_index)
+```
+
+```{r venn}
+th <- 0.05
+venn_age_days_genes <-
+  edger_model(x, sample_info_groups, tiss, contrast = 'age_days') %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
+  filter(gene_type == 'protein_coding') %>%
+  select(-row_index)
+
+venn_genotype_genes <-
+  edger_model(x, sample_info_groups, tiss, contrast = 'genotype') %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
+  filter(gene_type == 'protein_coding') %>%
+  select(-row_index)
+
+venn_plot_data <-
+  full_join(
+    venn_age_days_genes,
+    venn_genotype_genes,
+    by = c('gene_name', 'gene_stable_id'),
+    suffix = c('.age_days', '.genotype')
+  ) %>%
+  mutate(
+    age = FDR.age_days < th,
+    genotype = FDR.genotype < th,
+  )
+
+ggplot() +
+  geom_text(
+    mapping = aes(x = 0, y = 1.8),
+    label = tiss,
+    size = 6
+  ) +
+  geom_venn(
+    aes_string(A = 'age', B = 'genotype'),
+    data = venn_plot_data,
+    fill_color = c('#0073C2FF', '#EFC000FF'),
+    set_name_size = 5,
+    auto_scale = TRUE,
+    show_percentage = FALSE,
+    show_outside = 'none',
+  ) +
+  coord_fixed() +
+  theme_void()
+ggsave(
+  paste0('results/venn-', tiss, '-', th, '.png'),
+  bg = 'white',
+  width = 9,
+  height = 6
+)
 ```
 
 ```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=12, fig.width=8, results='asis', include=TRUE, warning=FALSE}
@@ -381,6 +448,67 @@ edger_genes <-
     .before = everything()
   ) %>%
   select(-row_index)
+```
+
+```{r venn2}
+th <- 0.05
+venn_age_days_genes <-
+  edger_model(x, sample_info_groups, tiss, contrast = 'age_days') %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
+  filter(gene_type == 'protein_coding') %>%
+  select(-row_index)
+
+venn_genotype_genes <-
+  edger_model(x, sample_info_groups, tiss, contrast = 'genotype') %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
+  filter(gene_type == 'protein_coding') %>%
+  select(-row_index)
+
+venn_plot_data <-
+  full_join(
+    venn_age_days_genes,
+    venn_genotype_genes,
+    by = c('gene_name', 'gene_stable_id'),
+    suffix = c('.age_days', '.genotype')
+  ) %>%
+  mutate(
+    age = FDR.age_days < th,
+    genotype = FDR.genotype < th,
+  )
+
+ggplot() +
+  geom_text(
+    mapping = aes(x = 0, y = 1.8),
+    label = tiss,
+    size = 6
+  ) +
+  geom_venn(
+    aes_string(A = 'age', B = 'genotype'),
+    data = venn_plot_data,
+    fill_color = c('#0073C2FF', '#EFC000FF'),
+    set_name_size = 5,
+    auto_scale = TRUE,
+    show_percentage = FALSE,
+    show_outside = 'none',
+  ) +
+  coord_fixed() +
+  theme_void()
+ggsave(
+  paste0('results/venn-', tiss, '-', th, '.png'),
+  bg = 'white',
+  width = 9,
+  height = 6
+)
 ```
 
 ```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=13, fig.width=8, results='asis', include=TRUE, warning=FALSE}
