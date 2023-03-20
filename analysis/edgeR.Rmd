@@ -323,7 +323,27 @@ venn_plot_data <-
   mutate(
     age = FDR.age_days < th,
     genotype = FDR.genotype < th,
+    age_regulation = if_else(logFC.age_days < 0, 'up', 'down'),
+    genotype_regulation = if_else(logFC.genotype < 0, 'up', 'down'),
   )
+
+.venn_age_name <- venn_plot_data %>%
+  filter(age) %>%
+  group_by(age_regulation) %>%
+  summarise(n = n()) %>%
+  arrange(desc(age_regulation)) %>%
+  mutate(name = paste(age_regulation, n)) %>%
+  pull(name) %>%
+  paste0(collapse = ' / ') %>%
+  { paste0('age (', paste0(., collapse = ' / '), ')') }
+.venn_genotype_name <- venn_plot_data %>%
+  filter(genotype) %>%
+  group_by(genotype_regulation) %>%
+  summarise(n = n()) %>%
+  arrange(desc(genotype_regulation)) %>%
+  mutate(name = paste(genotype_regulation, n)) %>%
+  pull(name) %>%
+  { paste0('genotype (', paste0(., collapse = ' / '), ')') }
 
 ggplot() +
   geom_text(
@@ -335,7 +355,8 @@ ggplot() +
     aes_string(A = 'age', B = 'genotype'),
     data = venn_plot_data,
     fill_color = c('#0073C2FF', '#EFC000FF'),
-    set_name_size = 5,
+    set_names = c(.venn_age_name, .venn_genotype_name),
+    set_name_size = 4,
     auto_scale = TRUE,
     show_percentage = FALSE,
     show_outside = 'none',
@@ -484,7 +505,27 @@ venn_plot_data <-
   mutate(
     age = FDR.age_days < th,
     genotype = FDR.genotype < th,
+    age_regulation = if_else(logFC.age_days < 0, 'up', 'down'),
+    genotype_regulation = if_else(logFC.genotype < 0, 'up', 'down'),
   )
+
+.venn_age_name <- venn_plot_data %>%
+  filter(age) %>%
+  group_by(age_regulation) %>%
+  summarise(n = n()) %>%
+  arrange(desc(age_regulation)) %>%
+  mutate(name = paste(age_regulation, n)) %>%
+  pull(name) %>%
+  paste0(collapse = ' / ') %>%
+  { paste0('age (', paste0(., collapse = ' / '), ')') }
+.venn_genotype_name <- venn_plot_data %>%
+  filter(genotype) %>%
+  group_by(genotype_regulation) %>%
+  summarise(n = n()) %>%
+  arrange(desc(genotype_regulation)) %>%
+  mutate(name = paste(genotype_regulation, n)) %>%
+  pull(name) %>%
+  { paste0('genotype (', paste0(., collapse = ' / '), ')') }
 
 ggplot() +
   geom_text(
@@ -496,7 +537,8 @@ ggplot() +
     aes_string(A = 'age', B = 'genotype'),
     data = venn_plot_data,
     fill_color = c('#0073C2FF', '#EFC000FF'),
-    set_name_size = 5,
+    set_names = c(.venn_age_name, .venn_genotype_name),
+    set_name_size = 4,
     auto_scale = TRUE,
     show_percentage = FALSE,
     show_outside = 'none',
