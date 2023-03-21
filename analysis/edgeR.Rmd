@@ -301,12 +301,20 @@ plot_data <-
 
 .x <- plot_data %>% select(any_of(plot_info_cerebrum$id)) %>% as.matrix()
 rownames(.x) <- plot_data$gene_name
+colnames(.x) <-
+  tibble(id = colnames(.x)) %>%
+  left_join(sample_info, by = 'id') %>%
+  mutate(age_days = if_else(age_days == 10, '10 days', '10 weeks')) %>%
+  unite('col_names', genotype, age_days, sep = ' ') %>%
+  pull(col_names)
 .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- plot_info_cerebrum %>% select(contains('/')) %>% as.matrix()
+.col_side_colors <- plot_info_cerebrum %>% select(contains('/'), -contains(tiss)) %>% as.matrix()
 .way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
+.col_sep <- 1:3 * 5
 
-path <- paste0('results/genotype-edger-', tiss, '.png')
-png(path, width = 1000*2.0, height = 2200*2.0, pointsize = 25)
+path <- paste0('results/genotype-edger-', tiss, '.svg')
+svg(path, width = 1000*0.03, height = 2200*0.03, pointsize = 25)
+par(cex.axis=1.3)
 h_cerebrum <- heatmap.3(
     x = .x,
     main = paste('genotype effect in ', tiss, ' FDR <', format(fdr_th, scientific = FALSE)),
@@ -320,12 +328,14 @@ h_cerebrum <- heatmap.3(
     trace = "none",
     ColSideColors = .col_side_colors,
     ColSideColorsSize = 5,
+    colsep = .col_sep,
+    srtCol = 45,  # doesn't work in heatmap.3
     key = FALSE,
     lhei = c(1.0, 40),
     lwid = c(1,5),
     cexRow = 1.3,
     cexCol = 1.3,
-    margins = c(9, 8),
+    margins = c(10, 8),
 )
 dev.off()
 ```
@@ -359,7 +369,7 @@ tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
 ```
 
 ```{r venn}
-th <- 0.05
+th <- 0.1
 venn_age_days_genes <-
   edger_model(x, sample_info_groups, tiss, contrast = 'age_days') %>%
   mutate(
@@ -436,7 +446,7 @@ ggplot() +
   coord_fixed() +
   theme_void()
 ggsave(
-  paste0('results/venn-', tiss, '-', th, '.png'),
+  paste0('results/venn-', tiss, '-', th, '.svg'),
   bg = 'white',
   width = 9,
   height = 6
@@ -490,7 +500,7 @@ venn_plot_data <-
   mutate(name = paste(genotype_10_regulation, n)) %>%
   pull(name) %>%
   paste0(collapse = ' / ') %>%
-  { paste0('genotype 10 (', paste0(., collapse = ' / '), ')') }
+  { paste0('genotype 10 days (', paste0(., collapse = ' / '), ')') }
 .venn_genotype_70_name <- venn_plot_data %>%
   filter(genotype_70) %>%
   group_by(genotype_70_regulation) %>%
@@ -498,7 +508,7 @@ venn_plot_data <-
   arrange(desc(genotype_70_regulation)) %>%
   mutate(name = paste(genotype_70_regulation, n)) %>%
   pull(name) %>%
-  { paste0('genotype 70 (', paste0(., collapse = ' / '), ')') }
+  { paste0('genotype 10 weeks (', paste0(., collapse = ' / '), ')') }
 
 ggplot() +
   geom_text(
@@ -522,7 +532,7 @@ ggplot() +
   coord_fixed() +
   theme_void()
 ggsave(
-  paste0('results/venn-', tiss, '-in-age-', th, '.png'),
+  paste0('results/venn-', tiss, '-in-age-', th, '.svg'),
   bg = 'white',
   width = 9,
   height = 6
@@ -572,12 +582,20 @@ plot_data <-
 
 .x <- plot_data %>% select(any_of(plot_info_cerebellum$id)) %>% as.matrix()
 rownames(.x) <- plot_data$gene_name
+colnames(.x) <-
+  tibble(id = colnames(.x)) %>%
+  left_join(sample_info, by = 'id') %>%
+  mutate(age_days = if_else(age_days == 10, '10 days', '10 weeks')) %>%
+  unite('col_names', genotype, age_days, sep = ' ') %>%
+  pull(col_names)
 .rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- plot_info_cerebellum %>% select(contains('/')) %>% as.matrix()
+.col_side_colors <- plot_info_cerebellum %>% select(contains('/'), -contains(tiss)) %>% as.matrix()
+.col_sep <- 1:3 * 5
 .way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
 
-path <- paste0('results/genotype-edger-', tiss, '.png')
-png(path, width = 1000*1.0, height = 1800*1.0, pointsize = 20)
+path <- paste0('results/genotype-edger-', tiss, '.svg')
+svg(path, width = 1000*0.02, height = 1800*0.02, pointsize = 25)
+par(cex.axis=1.3)
 h_cerebellum <- heatmap.3(
     x = .x,
     main = paste('genotype effect in ', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
@@ -590,7 +608,8 @@ h_cerebellum <- heatmap.3(
     col = rev(.rdbu_ramp(24)),
     trace = "none",
     ColSideColors = .col_side_colors,
-    ColSideColorsSize = 6,
+    ColSideColorsSize = 5,
+    colsep = .col_sep,
     key = FALSE,
     lhei = c(1.5, 20),
     lwid = c(1,5),
@@ -616,7 +635,7 @@ tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
 ```
 
 ```{r venn2}
-th <- 0.05
+th <- 0.1
 venn_age_days_genes <-
   edger_model(x, sample_info_groups, tiss, contrast = 'age_days') %>%
   mutate(
@@ -693,7 +712,7 @@ ggplot() +
   coord_fixed() +
   theme_void()
 ggsave(
-  paste0('results/venn-', tiss, '-', th, '.png'),
+  paste0('results/venn-', tiss, '-', th, '.svg'),
   bg = 'white',
   width = 9,
   height = 6
@@ -747,7 +766,7 @@ venn_plot_data <-
   mutate(name = paste(genotype_10_regulation, n)) %>%
   pull(name) %>%
   paste0(collapse = ' / ') %>%
-  { paste0('genotype 10 (', paste0(., collapse = ' / '), ')') }
+  { paste0('genotype 10 days (', paste0(., collapse = ' / '), ')') }
 .venn_genotype_70_name <- venn_plot_data %>%
   filter(genotype_70) %>%
   group_by(genotype_70_regulation) %>%
@@ -755,7 +774,7 @@ venn_plot_data <-
   arrange(desc(genotype_70_regulation)) %>%
   mutate(name = paste(genotype_70_regulation, n)) %>%
   pull(name) %>%
-  { paste0('genotype 70 (', paste0(., collapse = ' / '), ')') }
+  { paste0('genotype 10 weeks (', paste0(., collapse = ' / '), ')') }
 
 ggplot() +
   geom_text(
@@ -779,7 +798,7 @@ ggplot() +
   coord_fixed() +
   theme_void()
 ggsave(
-  paste0('results/venn-', tiss, '-in-age-', th, '.png'),
+  paste0('results/venn-', tiss, '-in-age-', th, '.svg'),
   bg = 'white',
   width = 9,
   height = 6
