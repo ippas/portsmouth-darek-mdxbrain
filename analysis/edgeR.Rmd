@@ -355,6 +355,108 @@ edger_model <- function(x, sample_info_groups, tissue=NA, contrast='genotype'){
 ```
 
 
+```{r edger_statistic}
+.cerebrum_edger <- function(contrast) {
+  edger_model(
+    select(counts_cerebrum_raw, starts_with('sample_')),
+    sample_info %>%
+      filter(tissue == 'cerebrum') %>%
+      mutate(group = paste(genotype, age_days, sep = '_')),
+    tissue = 'cerebrum',
+    contrast = contrast
+  )
+}
+
+edger_genes_cerebrum <-
+  .cerebrum_edger(
+    contrast = 'genotype'
+  ) %>%
+  rename_with(.fn = ~ paste0(.x, '.genotype'), .cols = -row_index) %>%
+  full_join(
+    rename_with(
+      .cerebrum_edger(contrast = 'genotype_10'),
+      .fn = ~ paste0(.x, '.genotype_10'),
+      .cols = -row_index
+    )
+  ) %>%
+  full_join(
+    rename_with(
+      .cerebrum_edger(contrast = 'genotype_70'),
+      .fn = ~ paste0(.x, '.genotype_70'),
+      .cols = -row_index
+    )
+  ) %>%
+  full_join(
+    rename_with(
+      .cerebrum_edger(contrast = 'age_days'),
+      .fn = ~ paste0(.x, '.age_days'),
+      .cols = -row_index
+    )
+  ) %>%
+  mutate(
+    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
+  filter(gene_type == 'protein_coding') %>%
+  select(-row_index, -gene_type)
+
+.cerebellum_edger <- function(contrast) {
+  edger_model(
+    select(counts_cerebellum_raw, starts_with('sample_')),
+    sample_info %>%
+      filter(tissue == 'cerebellum') %>%
+      mutate(group = paste(genotype, age_days, sep = '_')),
+    tissue = 'cerebellum',
+    contrast = contrast
+  )
+}
+edger_genes_cerebellum <-
+  .cerebellum_edger(
+    contrast = 'genotype'
+  ) %>%
+  rename_with(.fn = ~ paste0(.x, '.genotype'), .cols = -row_index) %>%
+  full_join(
+    rename_with(
+      .cerebellum_edger(contrast = 'genotype_10'),
+      .fn = ~ paste0(.x, '.genotype_10'),
+      .cols = -row_index
+    )
+  ) %>%
+  full_join(
+    rename_with(
+      .cerebellum_edger(contrast = 'genotype_70'),
+      .fn = ~ paste0(.x, '.genotype_70'),
+      .cols = -row_index
+    )
+  ) %>%
+  full_join(
+    rename_with(
+      .cerebellum_edger(contrast = 'age_days'),
+      .fn = ~ paste0(.x, '.age_days'),
+      .cols = -row_index
+    )
+  ) %>%
+  mutate(
+    gene_name = counts_cerebellum_raw[as.numeric(.$row_index), ]$gene_name,
+    gene_stable_id = counts_cerebellum_raw[as.numeric(.$row_index), ]$gene_stable_id,
+    gene_type = counts_cerebellum_raw[as.numeric(.$row_index), ]$gene_type,
+    .before = everything()
+  ) %>%
+  filter(gene_type == 'protein_coding') %>%
+  select(-row_index, -gene_type)
+
+edger_genes_tissues <-
+  full_join(
+    edger_genes_cerebrum,
+    edger_genes_cerebellum,
+    suffix = c('.cerebrum', '.cerebellum'),
+    by = c('gene_name', 'gene_stable_id')
+  )
+```
+
+
 # All tissues
 
 ```{r}
@@ -373,7 +475,7 @@ edger_genes <-
   select(-row_index)
 ```
 
-```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=10, fig.width=10, results='asis', include=TRUE, warning=FALSE}
+```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=15, fig.width=10, results='asis', include=TRUE, warning=FALSE}
 plot_data <-
   counts %>%
   full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
@@ -434,32 +536,15 @@ plot_info_cerebrum <-
     .before = `cerebrum / cerebellum`,
     .keep = 'unused'
   )
-
-x <- select(counts_cerebrum_raw, starts_with('sample_'))
-sample_info_groups <-
-  sample_info %>%
-  filter(tissue == tiss) %>%
-  mutate(group = paste(genotype, age_days, sep = '_'))
-
-edger_genes <-
-  edger_model(x, sample_info_groups, tiss, contrast = 'genotype') %>%
-  mutate(
-    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    .before = everything()
-  ) %>%
-  select(-row_index)
 ```
 
-```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=12, fig.width=8, results='asis', include=TRUE, warning=FALSE}
+```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=20, fig.width=8, results='asis', include=TRUE, warning=FALSE}
 fdr_th <- 0.00005
 
 plot_data <-
   counts_cerebrum %>%
-  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
-  filter(FDR < fdr_th) %>%
-  filter(gene_type == 'protein_coding') %>%
-  `[`(-duplicated, )
+  full_join(edger_genes_cerebrum, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(FDR.genotype < fdr_th)
 
 .x <- plot_data %>% select(any_of(plot_info_cerebrum$id)) %>% as.matrix()
 rownames(.x) <- plot_data$gene_name
@@ -474,8 +559,8 @@ colnames(.x) <-
 .way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
 .col_sep <- 1:3 * 5
 
-path <- paste0('results/genotype-edger-', tiss, '.svg')
-svg(path, width = 1000*0.03, height = 2200*0.03, pointsize = 25)
+path <- paste0('results/genotype-edger-', tiss, '-0.1.png')
+png(path, width = 1000*2.03, height = 2200*2.03, pointsize = 25)
 par(cex.axis=1.3)
 h_cerebrum <- heatmap.3(
     x = .x,
@@ -493,27 +578,13 @@ h_cerebrum <- heatmap.3(
     colsep = .col_sep,
     srtCol = 45,  # doesn't work in heatmap.3
     key = FALSE,
-    lhei = c(1.0, 40),
+    lhei = c(1.5, 30),
     lwid = c(1,5),
-    cexRow = 1.3,
+    cexRow = 0.9,
     cexCol = 1.3,
     margins = c(10, 8),
 )
 dev.off()
-```
-
-```{r}
-ct <- cutree(as.hclust(h_cerebrum$rowDendrogram), h = 0.002)
-tibble(
-  cluster=ct,
-  gene_name=names(ct),
-  m=h_cerebrum$rowMeans
-) %>%
-group_by(cluster) %>%
-filter(n() > 1) %>%
-arrange(-m)
-
-duplicated <- which((ct == 15) & names(ct) != 'Pcdha4')
 ```
 
 ```{r}
@@ -527,40 +598,14 @@ ct_heatmap_order <- ct[rev(h_cerebrum$rowInd)]
 #   cat
 
 tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
-  write_csv(paste0('results/edger-', tiss, '-clusters.csv'))
+  write_csv(paste0('results/edger-', tiss, '-clusters-0.1.csv'))
 ```
 
 ```{r venn}
 th <- 0.1
-venn_age_days_genes <-
-  edger_model(x, sample_info_groups, tiss, contrast = 'age_days') %>%
-  mutate(
-    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
-    .before = everything()
-  ) %>%
-  filter(gene_type == 'protein_coding') %>%
-  select(-row_index)
-
-venn_genotype_genes <-
-  edger_model(x, sample_info_groups, tiss, contrast = 'genotype') %>%
-  mutate(
-    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
-    .before = everything()
-  ) %>%
-  filter(gene_type == 'protein_coding') %>%
-  select(-row_index)
 
 venn_plot_data <-
-  full_join(
-    venn_age_days_genes,
-    venn_genotype_genes,
-    by = c('gene_name', 'gene_stable_id'),
-    suffix = c('.age_days', '.genotype')
-  ) %>%
+  edger_genes_cerebrum %>%
   mutate(
     age = FDR.age_days < th,
     genotype = FDR.genotype < th,
@@ -617,36 +662,9 @@ ggsave(
 
 ```{r venn_10_70}
 th <- 0.1
-venn_genotype_10_genes <-
-  edger_model(x, sample_info_groups, tiss, contrast = 'genotype_10') %>%
-  mutate(
-    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
-    .before = everything()
-  ) %>%
-  filter(gene_type == 'protein_coding') %>%
-  select(-row_index)
-
-venn_genotype_70_genes <-
-  edger_model(x, sample_info_groups, tiss, contrast = 'genotype_70') %>%
-  mutate(
-    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
-    .before = everything()
-  ) %>%
-  filter(gene_type == 'protein_coding') %>%
-  select(-row_index)
-
 
 venn_plot_data <-
-  full_join(
-    venn_genotype_10_genes,
-    venn_genotype_70_genes,
-    by = c('gene_name', 'gene_stable_id'),
-    suffix = c('.genotype_10', '.genotype_70')
-  ) %>%
+  edger_genes_cerebrum %>%
   mutate(
     genotype_10 = FDR.genotype_10 < th,
     genotype_70 = FDR.genotype_70 < th,
@@ -716,31 +734,15 @@ plot_info_cerebellum <-
     .before = `cerebrum / cerebellum`,
     .keep = 'unused'
   )
-
-x <- select(counts_cerebellum_raw, starts_with('sample_'))
-sample_info_groups <-
-  sample_info %>%
-  filter(tissue == tiss) %>%
-  mutate(group = paste(genotype, age_days, sep = '_'))
-
-edger_genes <-
-  edger_model(x, sample_info_groups, tiss) %>%
-  mutate(
-    gene_name = counts_cerebellum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebellum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    .before = everything()
-  ) %>%
-  select(-row_index)
 ```
 
-```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=13, fig.width=8, results='asis', include=TRUE, warning=FALSE}
+```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=14, fig.width=8, results='asis', include=TRUE, warning=FALSE}
 fdr_th <- 0.1
 
 plot_data <-
   counts_cerebellum %>%
-  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
-  filter(FDR < fdr_th) %>%
-  filter(gene_type == 'protein_coding')
+  full_join(edger_genes_cerebellum, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(FDR.genotype < fdr_th)
 
 .x <- plot_data %>% select(any_of(plot_info_cerebellum$id)) %>% as.matrix()
 rownames(.x) <- plot_data$gene_name
@@ -798,35 +800,9 @@ tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
 
 ```{r venn2}
 th <- 0.1
-venn_age_days_genes <-
-  edger_model(x, sample_info_groups, tiss, contrast = 'age_days') %>%
-  mutate(
-    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
-    .before = everything()
-  ) %>%
-  filter(gene_type == 'protein_coding') %>%
-  select(-row_index)
-
-venn_genotype_genes <-
-  edger_model(x, sample_info_groups, tiss, contrast = 'genotype') %>%
-  mutate(
-    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
-    .before = everything()
-  ) %>%
-  filter(gene_type == 'protein_coding') %>%
-  select(-row_index)
 
 venn_plot_data <-
-  full_join(
-    venn_age_days_genes,
-    venn_genotype_genes,
-    by = c('gene_name', 'gene_stable_id'),
-    suffix = c('.age_days', '.genotype')
-  ) %>%
+  edger_genes_cerebellum %>%
   mutate(
     age = FDR.age_days < th,
     genotype = FDR.genotype < th,
@@ -883,36 +859,9 @@ ggsave(
 
 ```{r venn_10_702}
 th <- 0.1
-venn_genotype_10_genes <-
-  edger_model(x, sample_info_groups, tiss, contrast = 'genotype_10') %>%
-  mutate(
-    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
-    .before = everything()
-  ) %>%
-  filter(gene_type == 'protein_coding') %>%
-  select(-row_index)
-
-venn_genotype_70_genes <-
-  edger_model(x, sample_info_groups, tiss, contrast = 'genotype_70') %>%
-  mutate(
-    gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    gene_type = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_type,
-    .before = everything()
-  ) %>%
-  filter(gene_type == 'protein_coding') %>%
-  select(-row_index)
-
 
 venn_plot_data <-
-  full_join(
-    venn_genotype_10_genes,
-    venn_genotype_70_genes,
-    by = c('gene_name', 'gene_stable_id'),
-    suffix = c('.genotype_10', '.genotype_70')
-  ) %>%
+  edger_genes_cerebellum %>%
   mutate(
     genotype_10 = FDR.genotype_10 < th,
     genotype_70 = FDR.genotype_70 < th,
