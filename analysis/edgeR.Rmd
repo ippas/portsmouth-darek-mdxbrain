@@ -32,13 +32,110 @@ BiocManager::install("preprocessCore", configure.args="--disable-threading")
 ```
 
 ```{r load_libraries, include=FALSE}
-library(tidyverse)
+library(IRanges)
+library(sets)
 library(preprocessCore)
 library(RColorBrewer)
+library(tidyverse)
 
 source('analysis/utils.R')
 library(edgeR)
 library(ggvenn)
+```
+
+```{r}
+expression_dist_matrix <- function(counts_df) {
+  counts_df %>%
+  select(starts_with('sample_')) %>%
+  as.matrix() %>%
+  # library(Rfast2)
+  # t() %>%
+  # dcora()  # correlation as distance
+  dist(method = 'canberra') %>%
+  as.matrix()
+}
+
+overlap_ratio_matrix <- function(counts_df){
+  query <- IRanges(
+    counts_df$start,
+    counts_df$end
+  )
+  
+  overlap_pairs <-
+    findOverlaps(query) %>%
+    as.data.frame() %>%
+    mutate(
+      query_start = counts_df$start[queryHits],
+      query_end = counts_df$end[queryHits],
+      subject_start = counts_df$start[subjectHits],
+      subject_end = counts_df$end[subjectHits],
+      query_gene_name = counts_df$gene_name[queryHits],
+      subject_gene_name = counts_df$gene_name[subjectHits],
+      query_chr = counts_df$chr[queryHits],
+      subject_chr = counts_df$chr[subjectHits],
+    ) %>%
+    mutate(
+      overlap_width = pmin(query_end, subject_end)
+      - pmax(query_start, subject_start),
+      shorter_range = pmin(query_end - query_start, subject_end - subject_start),
+      longer_range = pmax(query_end - query_start, subject_end - subject_start),
+    ) %>%
+    mutate(
+      # ratio = overlap_width / longer_range
+      ratio = if_else(query_chr == subject_chr, overlap_width / shorter_range, 0)
+    )
+    
+  overlap_matrix <- matrix(0, nrow = nrow(dist_matrix), ncol = ncol(dist_matrix))
+  for (i in 1:nrow(overlap_pairs)) {
+    query <- overlap_pairs[i, 'queryHits']
+    subject <- overlap_pairs[i, 'subjectHits']
+    ratio <- overlap_pairs[i, 'ratio']
+  
+    overlap_matrix[query, subject] <- ratio
+  }
+  overlap_matrix
+}
+
+
+reduce_sets <- function(gene_sets) {
+  out <- list(gene_sets[[1]])
+  for (x in gene_sets) {
+    create_new <- TRUE
+    for (iy in 1:length(out)) {
+      y <- out[[iy]]
+      if (!set_is_empty(set_intersection(x, y))) {
+        out[[iy]] <- sort(unique(c(out[[iy]], x)))
+        create_new <- FALSE
+      }
+    }
+    if (create_new)
+      out[[length(out) + 1]] <- x
+  }
+  out
+}
+
+gene_sets <- function(m) {
+  gene_sets <- apply(unname(m), 1, which)
+  new_gene_sets <- list()
+  for (x in gene_sets) {
+    x <- unname(x)
+    if (length(x) > 2) {
+      new_gene_sets[[length(new_gene_sets) + 1]] <- x
+    }
+  }
+  
+  if (length(new_gene_sets) == 0) {
+    return()
+  }
+  
+  old_gene_sets <- list()
+  while(!identical(old_gene_sets, new_gene_sets)) {
+    old_gene_sets <- new_gene_sets
+    new_gene_sets <- reduce_sets(old_gene_sets)
+  }
+  new_gene_sets
+}
+
 ```
 
 ```{r read_data}
@@ -83,6 +180,71 @@ counts_raw <-
     gene_type = `Gene type`,
     gene_synonym = `Gene Synonym`
   )
+```
+
+```{r remove_duplicated_genes}
+duplicated_genes <- c()
+
+chr_subset <- c('1', '2', '3', '4', '5', '6', '7', '8')
+counts_chr <-
+  counts_raw %>%
+  filter(gene_type == 'protein_coding') %>%
+  rename(start=`Gene start (bp)`, end=`Gene end (bp)`) %>%
+  select(gene_stable_id, gene_name, chr, start, end, starts_with('sample_')) %>%
+  mutate(g = chr %in% chr_subset)
+  # mutate(dup = duplicated(gene_name))
+
+dist_matrix <- expression_dist_matrix(filter(counts_chr, g))
+overlap_matrix <- overlap_ratio_matrix(filter(counts_chr, g))
+result <- (overlap_matrix > 0.5) & (dist_matrix < 1.0)
+
+for (s in gene_sets(result)) {
+  print(s)
+  genes <- 
+    counts_chr %>%
+    filter(g) %>%
+    slice(s) %>%
+    mutate(sum = apply(select(., starts_with('sample_')), 1, sum)) %>%
+    arrange(-sum) %>%
+    slice(-1) %>%
+    pull(gene_stable_id)
+  
+  
+    counts_chr %>%
+    filter(g) %>%
+    slice(s) %>%print
+  
+  duplicated_genes <- c(duplicated_genes, genes)
+}
+
+dist_matrix <- expression_dist_matrix(filter(counts_chr, !g))
+overlap_matrix <- overlap_ratio_matrix(filter(counts_chr, !g))
+result <- (overlap_matrix > 0.5) & (dist_matrix < 1)
+
+for (s in gene_sets(result)) {
+  print(s)
+  genes <- 
+    counts_chr %>%
+    filter(!g) %>%
+    slice(s) %>%
+    mutate(sum = apply(select(., starts_with('sample_')), 1, sum)) %>%
+    arrange(-sum) %>%
+    slice(-1) %>%
+    pull(gene_stable_id)
+
+    counts_chr %>%
+    filter(!g) %>%
+    slice(s) %>%print
+  
+  duplicated_genes <- c(duplicated_genes, genes)
+}
+
+counts_cerebrum_raw <-
+  filter(counts_cerebrum_raw, !gene_stable_id %in% duplicated_genes)
+counts_cerebellum_raw <-
+  filter(counts_cerebellum_raw, !gene_stable_id %in% duplicated_genes)
+counts_raw <-
+  filter(counts_raw, !gene_stable_id %in% duplicated_genes)
 ```
 
 ```{r prepare_data}
