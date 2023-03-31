@@ -25,6 +25,7 @@ knit: (function(input, ...) {
 library(devtools)
 devtools::install_github("zhangyuqing/sva-devel")
 devtools::install_github("yanlinlin82/ggvenn")
+deftools::install_github("jokergoo/ComplexHeatmap")
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 # https://github.com/Bioconductor/bioconductor_docker/issues/22
@@ -36,6 +37,8 @@ library(IRanges)
 library(sets)
 library(preprocessCore)
 library(RColorBrewer)
+library(ComplexHeatmap)
+library(circlize)
 library(tidyverse)
 
 source('analysis/utils.R')
@@ -539,14 +542,23 @@ plot_info_cerebrum <-
 ```
 
 ```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=20, fig.width=8, results='asis', include=TRUE, warning=FALSE}
-fdr_th <- 0.00005
+fdr_th <- 0.1
 
 plot_data <-
   counts_cerebrum %>%
   full_join(edger_genes_cerebrum, by = c('gene_stable_id', 'gene_name')) %>%
-  filter(FDR.genotype < fdr_th)
+  filter(FDR.genotype < fdr_th) %>%
+  mutate(
+    genotype_10 = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
+    genotype_70 = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
+  ) %>%
+  filter(gene_stable_id != 'ENSMUSG00000064351')  # after  quantile normalization it's top in all samples (all values are the same)
 
-.x <- plot_data %>% select(any_of(plot_info_cerebrum$id)) %>% as.matrix()
+.x <-
+  plot_data %>%
+  select(any_of(plot_info_cerebrum$id)) %>%
+  as.matrix() %>%
+  { t(scale(t(.))) }
 rownames(.x) <- plot_data$gene_name
 colnames(.x) <-
   tibble(id = colnames(.x)) %>%
@@ -554,42 +566,51 @@ colnames(.x) <-
   mutate(age_days = if_else(age_days == 10, '10 days', '10 weeks')) %>%
   unite('col_names', genotype, age_days, sep = ' ') %>%
   pull(col_names)
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- plot_info_cerebrum %>% select(contains('/'), -contains(tiss)) %>% as.matrix()
-.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
-.col_sep <- 1:3 * 5
-
-path <- paste0('results/genotype-edger-', tiss, '-0.1.png')
-png(path, width = 1000*2.03, height = 2200*2.03, pointsize = 25)
-par(cex.axis=1.3)
-h_cerebrum <- heatmap.3(
-    x = .x,
-    main = paste('genotype effect in ', tiss, ' FDR <', format(fdr_th, scientific = FALSE)),
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    breaks = seq(-2.5, 2.5, length.out = 25),
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 5,
-    colsep = .col_sep,
-    srtCol = 45,  # doesn't work in heatmap.3
-    key = FALSE,
-    lhei = c(1.5, 30),
-    lwid = c(1,5),
-    cexRow = 0.9,
-    cexCol = 1.3,
-    margins = c(10, 8),
+.col_fun <- colorRamp2(
+  seq(-2.5, 2.5, length.out = 24),
+  rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
 )
+
+path <- paste0('results/complex-heatmap/genotype-edger-', tiss, '_raster.svg')
+svg(path, width = 10, height = 16)
+h_cerebrum <- Heatmap(
+  .x,
+  column_title = paste('genotype effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
+  cluster_columns = FALSE,
+  clustering_distance_rows = function(x) as.dist(1-cor(t(x))),
+  col = .col_fun,
+  row_names_side = 'right',
+  show_row_names = FALSE,
+  row_dend_width = unit(3, 'cm'),
+  column_split = rep(1:4, each = 5),
+  top_annotation = c(
+    columnAnnotation(
+      age = as.character(plot_info_cerebrum$age_days),
+      genotype = as.character(plot_info_cerebrum$genotype),
+      col = list(
+        'age' = c('10' = 'green', '70' = 'magenta'),
+        'genotype' = c('wt' = 'yellow', 'mdx' = 'black')
+      )
+    )
+  ),
+  right_annotation = rowAnnotation(
+    `genotype 10 days` = plot_data$genotype_10,
+    `genotype 70 days` = plot_data$genotype_70,
+    col = list(
+      'genotype 10 days' = c('sig'='green', 'ns'='white'),
+      'genotype 70 days' = c('sig'='magenta', 'ns'='white')
+    )
+  ),
+  use_raster = TRUE,
+)
+draw(h_cerebrum)
 dev.off()
 ```
 
 ```{r}
-ct <- cutree(as.hclust(h_cerebrum$rowDendrogram), k = 4)
-ct_heatmap_order <- ct[rev(h_cerebrum$rowInd)]
+h_cerebrum <- draw(h_cerebrum)
+ct <- cutree(as.hclust(row_dend(h_cerebrum)), k = 4)
+ct_heatmap_order <- ct[row_order(h_cerebrum)]
 
 # tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
 #   filter(cluster != 0) %>%
@@ -598,7 +619,7 @@ ct_heatmap_order <- ct[rev(h_cerebrum$rowInd)]
 #   cat
 
 tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
-  write_csv(paste0('results/edger-', tiss, '-clusters-0.1.csv'))
+  write_csv(paste0('results/complex-heatmap/edger-', tiss, '-clusters-', fdr_th, '.csv'))
 ```
 
 ```{r venn}
@@ -653,7 +674,7 @@ ggplot() +
   coord_fixed() +
   theme_void()
 ggsave(
-  paste0('results/venn-', tiss, '-', th, '.svg'),
+  paste0('results/complex-heatmap/venn-', tiss, '-', th, '.svg'),
   bg = 'white',
   width = 9,
   height = 6
@@ -712,7 +733,7 @@ ggplot() +
   coord_fixed() +
   theme_void()
 ggsave(
-  paste0('results/venn-', tiss, '-in-age-', th, '.svg'),
+  paste0('results/complex-heatmap/venn-', tiss, '-in-age-', th, '.svg'),
   bg = 'white',
   width = 9,
   height = 6
@@ -736,15 +757,23 @@ plot_info_cerebellum <-
   )
 ```
 
-```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=14, fig.width=8, results='asis', include=TRUE, warning=FALSE}
+```{r draw_heatmap, echo=FALSE, fig.align="center", fig.width=10, fig.height=14, results='asis', include=TRUE, warning=FALSE}
 fdr_th <- 0.1
 
 plot_data <-
   counts_cerebellum %>%
   full_join(edger_genes_cerebellum, by = c('gene_stable_id', 'gene_name')) %>%
-  filter(FDR.genotype < fdr_th)
+  filter(FDR.genotype < fdr_th) %>%
+  mutate(
+    genotype_10 = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
+    genotype_70 = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
+  )
 
-.x <- plot_data %>% select(any_of(plot_info_cerebellum$id)) %>% as.matrix()
+.x <-
+  plot_data %>%
+  select(any_of(plot_info_cerebellum$id)) %>%
+  as.matrix() %>%
+  { t(scale(t(.))) }
 rownames(.x) <- plot_data$gene_name
 colnames(.x) <-
   tibble(id = colnames(.x)) %>%
@@ -752,41 +781,49 @@ colnames(.x) <-
   mutate(age_days = if_else(age_days == 10, '10 days', '10 weeks')) %>%
   unite('col_names', genotype, age_days, sep = ' ') %>%
   pull(col_names)
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- plot_info_cerebellum %>% select(contains('/'), -contains(tiss)) %>% as.matrix()
-.col_sep <- 1:3 * 5
-.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
-
-path <- paste0('results/genotype-edger-', tiss, '.svg')
-svg(path, width = 1000*0.02, height = 1800*0.02, pointsize = 25)
-par(cex.axis=1.3)
-h_cerebellum <- heatmap.3(
-    x = .x,
-    main = paste('genotype effect in ', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    breaks = seq(-2.5, 2.5, length.out = 25),
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 5,
-    colsep = .col_sep,
-    key = FALSE,
-    lhei = c(1.5, 20),
-    lwid = c(1,5),
-    cexRow = 1.3,
-    cexCol = 1.3,
-    margins = c(9, 8),
+.col_fun <- colorRamp2(
+  seq(-2.5, 2.5, length.out = 24),
+  rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
 )
+
+path <- paste0('results/complex-heatmap/genotype-edger-', tiss, '.svg')
+svg(path, width = 10, height = 16)
+h_cerebellum <- Heatmap(
+  .x,
+  column_title = paste('genotype effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
+  cluster_columns = FALSE,
+  clustering_distance_rows = function(x) as.dist(1-cor(t(x))),
+  col = .col_fun,
+  row_names_side = 'right',
+  row_dend_width = unit(3, 'cm'),
+  column_split = rep(1:4, each = 5),
+  top_annotation = c(
+    columnAnnotation(
+      age = as.character(plot_info_cerebellum$age_days),
+      genotype = as.character(plot_info_cerebellum$genotype),
+      col = list(
+        'age' = c('10' = 'green', '70' = 'magenta'),
+        'genotype' = c('wt' = 'yellow', 'mdx' = 'black')
+      )
+    )
+  ),
+  right_annotation = rowAnnotation(
+    `genotype 10 days` = plot_data$genotype_10,
+    `genotype 70 days` = plot_data$genotype_70,
+    col = list(
+      'genotype 10 days' = c('sig'='green', 'ns'='white'),
+      'genotype 70 days' = c('sig'='magenta', 'ns'='white')
+    )
+  )
+)
+draw(h_cerebellum)
 dev.off()
 ```
 
 ```{r}
-ct <- cutree(as.hclust(h_cerebellum$rowDendrogram), k = 4)
-ct_heatmap_order <- ct[rev(h_cerebellum$rowInd)]
+h_cerebellum <- draw(h_cerebellum)
+ct <- cutree(as.hclust(row_dend(h_cerebellum)), k = 4)
+ct_heatmap_order <- ct[row_order(h_cerebellum)]
 
 # tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
 #   filter(cluster != 0) %>%
@@ -795,7 +832,7 @@ ct_heatmap_order <- ct[rev(h_cerebellum$rowInd)]
 #   cat
 
 tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
-  write_csv(paste0('results/edger-', tiss, '-clusters.csv'))
+  write_csv(paste0('results/complex-heatmap/edger-', tiss, '-clusters-', fdr_th, '.csv'))
 ```
 
 ```{r venn2}
@@ -850,7 +887,7 @@ ggplot() +
   coord_fixed() +
   theme_void()
 ggsave(
-  paste0('results/venn-', tiss, '-', th, '.svg'),
+  paste0('results/complex-heatmap/venn-', tiss, '-', th, '.svg'),
   bg = 'white',
   width = 9,
   height = 6
@@ -909,7 +946,7 @@ ggplot() +
   coord_fixed() +
   theme_void()
 ggsave(
-  paste0('results/venn-', tiss, '-in-age-', th, '.svg'),
+  paste0('results/complex-heatmap/venn-', tiss, '-in-age-', th, '.svg'),
   bg = 'white',
   width = 9,
   height = 6
