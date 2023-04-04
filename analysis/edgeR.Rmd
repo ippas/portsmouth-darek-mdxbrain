@@ -543,6 +543,7 @@ plot_info_cerebrum <-
 
 ```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=20, fig.width=8, results='asis', include=TRUE, warning=FALSE}
 fdr_th <- 0.1
+top_n_genes <- 10L
 
 plot_data <-
   counts_cerebrum %>%
@@ -552,13 +553,32 @@ plot_data <-
     genotype_10 = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
     genotype_70 = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
   ) %>%
-  filter(gene_stable_id != 'ENSMUSG00000064351')  # after  quantile normalization it's top in all samples (all values are the same)
+  filter(gene_stable_id != 'ENSMUSG00000064351') %>%  # after  quantile normalization it's top in all samples (all values are the same)
+  arrange(FDR.genotype)
 
 .x <-
   plot_data %>%
   select(any_of(plot_info_cerebrum$id)) %>%
   as.matrix() %>%
   { t(scale(t(.))) }
+.hc_cerebrum <-
+  .x %>%
+  (function(x) { 1 - cor(t(x)) }) %>%  # correlation as distance
+  as.dist() %>%
+  hclust()
+plot_data_genes <-
+  plot_data %>%
+  mutate(ct = cutree(.hc_cerebrum, k = 4)) %>%
+  group_by(ct) %>%
+  mutate(n_na_gene_names = cumsum(is.na(gene_name))) %>%
+  mutate(
+    genotype_rank = if_else(
+      is.na(gene_name), top_n_genes + 1L, min_rank(FDR.genotype) - n_na_gene_names
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(at = row_number()) %>%
+  filter(genotype_rank <= top_n_genes)
 rownames(.x) <- plot_data$gene_name
 colnames(.x) <-
   tibble(id = colnames(.x)) %>%
@@ -577,11 +597,12 @@ h_cerebrum <- Heatmap(
   .x,
   column_title = paste('genotype effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
   cluster_columns = FALSE,
-  clustering_distance_rows = function(x) as.dist(1-cor(t(x))),
+  cluster_rows = .hc_cerebrum,
   col = .col_fun,
   row_names_side = 'right',
   show_row_names = FALSE,
   row_dend_width = unit(3, 'cm'),
+  row_split = 4,
   column_split = rep(1:4, each = 5),
   top_annotation = c(
     columnAnnotation(
@@ -596,6 +617,10 @@ h_cerebrum <- Heatmap(
   right_annotation = rowAnnotation(
     `genotype 10 days` = plot_data$genotype_10,
     `genotype 70 days` = plot_data$genotype_70,
+    row_names = anno_mark(
+      at = plot_data_genes$at,
+      labels = plot_data_genes$gene_name,
+    ),
     col = list(
       'genotype 10 days' = c('sig'='green', 'ns'='white'),
       'genotype 70 days' = c('sig'='magenta', 'ns'='white')
@@ -796,6 +821,7 @@ h_cerebellum <- Heatmap(
   col = .col_fun,
   row_names_side = 'right',
   row_dend_width = unit(3, 'cm'),
+  row_split = 4,
   column_split = rep(1:4, each = 5),
   top_annotation = c(
     columnAnnotation(
