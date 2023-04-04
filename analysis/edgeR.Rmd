@@ -990,3 +990,64 @@ ggsave(
   height = 6
 )
 ```
+
+
+
+# Merge
+
+```{r draw_heatmap_merged, echo=FALSE, fig.align="center", fig.width=7, fig.height=10, results='asis', include=TRUE, warning=FALSE}
+fdr_th <- 0.1
+
+plot_data <-
+  edger_genes_tissues %>%
+  filter(FDR.genotype.cerebrum < fdr_th, FDR.genotype.cerebellum < fdr_th) %>%
+  select(
+    gene_name, FDR.genotype.cerebrum, FDR.genotype.cerebellum,
+    logFC.genotype.cerebrum, logFC.genotype.cerebellum,
+  ) %>%
+  mutate(
+    logFC.genotype.cerebrum = case_when(
+      abs(logFC.genotype.cerebrum) >= 1 & sign(logFC.genotype.cerebrum) > 0 ~ '4upup',
+      abs(logFC.genotype.cerebrum) < 1 & sign(logFC.genotype.cerebrum) > 0 ~ '3up',
+      abs(logFC.genotype.cerebrum) < 1 & sign(logFC.genotype.cerebrum) < 0 ~ '2down',
+      abs(logFC.genotype.cerebrum) >= 1 & sign(logFC.genotype.cerebrum) < 0 ~ '1downdown',
+    ),
+    logFC.genotype.cerebellum = case_when(
+      abs(logFC.genotype.cerebellum) >= 1 & sign(logFC.genotype.cerebellum) > 0 ~ '4upup',
+      abs(logFC.genotype.cerebellum) < 1 & sign(logFC.genotype.cerebellum) > 0 ~ '3up',
+      abs(logFC.genotype.cerebellum) < 1 & sign(logFC.genotype.cerebellum) < 0 ~ '2down',
+      abs(logFC.genotype.cerebellum) >= 1 & sign(logFC.genotype.cerebellum) < 0 ~ '1downdown',
+    ),
+  ) %>%
+  arrange(
+    logFC.genotype.cerebrum,
+    desc(logFC.genotype.cerebellum)
+  ) %>%
+  filter(!is.na(gene_name))
+
+.x <-
+  plot_data %>%
+  select(starts_with('logFC')) %>%
+  as.matrix()
+rownames(.x) <- plot_data$gene_name
+.gap <- unit(0.3, 'mm')
+
+path <- paste0('results/complex-heatmap/genotype-edger-merged.svg')
+svg(path, width = 5, height = 10)
+h_merged <- Heatmap(
+  .x,
+  column_title = paste('genotype effect in both tissues, FDR <', format(fdr_th, scientific = FALSE)),
+  cluster_columns = FALSE,
+  cluster_rows = FALSE,
+  column_split = 1:2,
+  row_gap = .gap,
+  column_gap = .gap,
+  row_split = 1:dim(.x)[1],
+  col = c('4upup' = '#D55F4FFF', '3up' = '#F9C8AFFF', '2down' = '#BBDAE9FF', '1downdown' = '#3883BAFF'),
+  row_names_side = 'left',
+  show_row_names = TRUE,
+  width = unit(3, 'cm'),
+)
+draw(h_merged)
+dev.off()
+```
