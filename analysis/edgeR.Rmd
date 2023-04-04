@@ -634,16 +634,22 @@ dev.off()
 
 ```{r}
 h_cerebrum <- draw(h_cerebrum)
-ct <- cutree(as.hclust(row_dend(h_cerebrum)), k = 4)
-ct_heatmap_order <- ct[row_order(h_cerebrum)]
 
-# tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
-#   filter(cluster != 0) %>%
-#   pull(gene_name) %>%
-#   paste(collapse = '\n') %>%
-#   cat
+ct <- 1
+clusters_cerebrum <- tibble()
+for (ct_heatmap_order in row_order(h_cerebrum)) {
+  gene_names <-
+    plot_data %>%
+    slice(ct_heatmap_order) %>%
+    pull(gene_name)
+  clusters_cerebrum <- bind_rows(
+    clusters_cerebrum,
+    tibble(gene_name = gene_names, cluster = ct)
+  )
+  ct <- ct + 1
+}
 
-tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+clusters_cerebrum %>%
   write_csv(paste0('results/complex-heatmap/edger-', tiss, '-clusters-', fdr_th, '.csv'))
 ```
 
@@ -788,7 +794,7 @@ fdr_th <- 0.1
 plot_data <-
   counts_cerebellum %>%
   full_join(edger_genes_cerebellum, by = c('gene_stable_id', 'gene_name')) %>%
-  filter(FDR.genotype < fdr_th) %>%
+  filter(FDR.genotype < fdr_th, !is.na(gene_name)) %>%
   mutate(
     genotype_10 = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
     genotype_70 = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
@@ -848,16 +854,22 @@ dev.off()
 
 ```{r}
 h_cerebellum <- draw(h_cerebellum)
-ct <- cutree(as.hclust(row_dend(h_cerebellum)), k = 4)
-ct_heatmap_order <- ct[row_order(h_cerebellum)]
 
-# tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
-#   filter(cluster != 0) %>%
-#   pull(gene_name) %>%
-#   paste(collapse = '\n') %>%
-#   cat
+ct <- 1
+clusters_cerebellum <- tibble()
+for (ct_heatmap_order in row_order(h_cerebellum)) {
+  gene_names <-
+    plot_data %>%
+    slice(ct_heatmap_order) %>%
+    pull(gene_name)
+  clusters_cerebellum <- bind_rows(
+    clusters_cerebellum,
+    tibble(gene_name = gene_names, cluster = ct)
+  )
+  ct <- ct + 1
+}
 
-tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order) %>%
+clusters_cerebellum %>%
   write_csv(paste0('results/complex-heatmap/edger-', tiss, '-clusters-', fdr_th, '.csv'))
 ```
 
