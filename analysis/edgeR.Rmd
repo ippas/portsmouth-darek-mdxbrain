@@ -559,6 +559,41 @@ plot_info_cerebrum <-
   )
 ```
 
+```{r}
+edger_genes_cerebrum %>%
+  select(-starts_with('F.'), -starts_with('PValue.'), -starts_with('logCPM.')) %>%
+  mutate(
+    `age regulation` = if_else(logFC.age_days < 0, 'up', 'down'),
+    `genotype regulation` = if_else(logFC.genotype < 0, 'up', 'down'),
+    `genotype 10 days regulation` = if_else(logFC.genotype_10 < 0, 'up', 'down'),
+    `genotype 10 weeks regulation` = if_else(logFC.genotype_70 < 0, 'up', 'down'),
+  ) %>%
+  mutate(
+    across(starts_with('logFC'), .fns = function(x) { x * -1 }),
+  ) %>%
+  rename(
+    `fold genotype` = logFC.genotype,
+    `genotype FDR` = FDR.genotype,
+    `fold genotype 10 days` = logFC.genotype_10,
+    `genotype 10 days FDR` = FDR.genotype_10,
+    `fold genotype 10 weeks` = logFC.genotype_70,
+    `genotype 10 weeks FDR` = FDR.genotype_70,
+    `fold age` = logFC.age_days,
+    `age FDR` = FDR.age_days,
+    `interaction FDR` = FDR.interaction
+  ) %>%
+  select(
+    gene_name, gene_stable_id,
+    matches('genotype($| FDR| regulation)'),
+    matches('genotype 10 days'),
+    matches('genotype 10 weeks'),
+    matches('age'),
+    matches('^interaction FDR$'),
+  ) %>%
+  write_csv('results/complex-heatmap/edger-cerebrum.csv')
+```
+
+
 ```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=20, fig.width=8, results='asis', include=TRUE, warning=FALSE}
 fdr_th <- 0.1
 top_n_genes <- 10L
@@ -805,6 +840,41 @@ plot_info_cerebellum <-
     .keep = 'unused'
   )
 ```
+
+```{r}
+edger_genes_cerebellum %>%
+  select(-starts_with('F.'), -starts_with('PValue.'), -starts_with('logCPM.')) %>%
+  mutate(
+    `age regulation` = if_else(logFC.age_days < 0, 'up', 'down'),
+    `genotype regulation` = if_else(logFC.genotype < 0, 'up', 'down'),
+    `genotype 10 days regulation` = if_else(logFC.genotype_10 < 0, 'up', 'down'),
+    `genotype 10 weeks regulation` = if_else(logFC.genotype_70 < 0, 'up', 'down'),
+  ) %>%
+  mutate(
+    across(starts_with('logFC'), .fns = function(x) { x * -1 }),
+  ) %>%
+  rename(
+    `fold genotype` = logFC.genotype,
+    `genotype FDR` = FDR.genotype,
+    `fold genotype 10 days` = logFC.genotype_10,
+    `genotype 10 days FDR` = FDR.genotype_10,
+    `fold genotype 10 weeks` = logFC.genotype_70,
+    `genotype 10 weeks FDR` = FDR.genotype_70,
+    `fold age` = logFC.age_days,
+    `age FDR` = FDR.age_days,
+    `interaction FDR` = FDR.interaction
+  ) %>%
+  select(
+    gene_name, gene_stable_id,
+    matches('genotype($| FDR| regulation)'),
+    matches('genotype 10 days'),
+    matches('genotype 10 weeks'),
+    matches('age'),
+    matches('^interaction FDR$'),
+  ) %>%
+  write_csv('results/complex-heatmap/edger-cerebellum.csv')
+```
+
 
 ```{r draw_heatmap, echo=FALSE, fig.align="center", fig.width=10, fig.height=14, results='asis', include=TRUE, warning=FALSE}
 fdr_th <- 0.1
