@@ -333,6 +333,10 @@ edger_model <- function(x, sample_info_groups, tissue=NA, contrast='genotype'){
         (mdx_groups.wt_10 + mdx_groups.mdx_10)
         - (mdx_groups.wt_70 + mdx_groups.mdx_70)
       ),
+      interaction=(
+        (mdx_groups.wt_10 - mdx_groups.mdx_10)
+        - (mdx_groups.wt_70 - mdx_groups.mdx_70)
+      ),
       levels = design
     )
   } else {
@@ -396,6 +400,13 @@ edger_genes_cerebrum <-
       .cols = -row_index
     )
   ) %>%
+  full_join(
+    rename_with(
+      .cerebrum_edger(contrast = 'interaction'),
+      .fn = ~ paste0(.x, '.interaction'),
+      .cols = -row_index
+    )
+  ) %>%
   mutate(
     gene_name = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_name,
     gene_stable_id = counts_cerebrum_raw[as.numeric(.$row_index), ]$gene_stable_id,
@@ -438,6 +449,13 @@ edger_genes_cerebellum <-
     rename_with(
       .cerebellum_edger(contrast = 'age_days'),
       .fn = ~ paste0(.x, '.age_days'),
+      .cols = -row_index
+    )
+  ) %>%
+  full_join(
+    rename_with(
+      .cerebellum_edger(contrast = 'interaction'),
+      .fn = ~ paste0(.x, '.interaction'),
       .cols = -row_index
     )
   ) %>%
