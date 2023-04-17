@@ -139,9 +139,23 @@ gene_sets <- function(m) {
   new_gene_sets
 }
 
+find_go_genes <- function(go_ids, go_db) {
+  genes <- list()
+  for (go_id in go_ids) {
+    go <- str_subset(go_db, go_id)
+    stopifnot(length(go) == 1)
+    go_genes <- str_split(go, '\t', simplify = TRUE)[1, -2]  # 1 is a name, 2 is empty
+    genes[[go_genes[1]]] <- na.omit(go_genes[-1])
+  }
+  genes
+}
 ```
 
 ```{r read_data}
+go_biological_process_2021 <- read_lines(
+  'data/GO_Biological_Process_2021.txt',
+)
+
 sample_info_rds_path <- 'data/sample_info.RDS'
 sample_info <- readRDS(sample_info_rds_path)
 
@@ -593,21 +607,40 @@ edger_genes_cerebrum %>%
   write_csv('results/complex-heatmap/edger-cerebrum.csv')
 ```
 
-
-```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=20, fig.width=8, results='asis', include=TRUE, warning=FALSE}
+```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=20, fig.width=12, results='asis', include=TRUE, warning=FALSE}
 fdr_th <- 0.1
 top_n_genes <- 10L
+go_genes <- find_go_genes(
+  c(
+    'GO:0007268', 'GO:0016052',  # https://maayanlab.cloud/Enrichr/enrich?dataset=50e71ca36d7625f53d07be601ea0169a
+    'GO:0006397', 'GO:0000398',  # https://maayanlab.cloud/Enrichr/enrich?dataset=dfe0a9232ad83c9744642dd342f14e44
+    'GO:0048699', 'GO:0007409',  # https://maayanlab.cloud/Enrichr/enrich?dataset=2ad79e0f126153f1168f618974f90a59
+    'GO:0006614', 'GO:0045047'  # https://maayanlab.cloud/Enrichr/enrich?dataset=efe1a8dd2c78b99d26e041c785ba8977
+  ),
+  go_db = go_biological_process_2021
+)
 
 plot_data <-
   counts_cerebrum %>%
   full_join(edger_genes_cerebrum, by = c('gene_stable_id', 'gene_name')) %>%
   filter(FDR.genotype < fdr_th) %>%
-  mutate(
-    genotype_10 = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
-    genotype_70 = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
-  ) %>%
   filter(gene_stable_id != 'ENSMUSG00000064351') %>%  # after  quantile normalization it's top in all samples (all values are the same)
   arrange(FDR.genotype)
+
+anno_data_right <-
+  plot_data %>%
+  transmute(
+    gene_name = gene_name,
+    `genotype 10 days` = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
+    `genotype 10 weeks` = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
+  )
+for (go_name in names(go_genes)) {
+  anno_data_right <- mutate(
+      anno_data_right,
+      "{ go_name }" := if_else(toupper(gene_name) %in% go_genes[[go_name]], 'sig', 'ns')
+    )
+}
+anno_data_right <- as.data.frame(anno_data_right)
 
 .x <-
   plot_data %>%
@@ -643,9 +676,16 @@ colnames(.x) <-
   seq(-2.5, 2.5, length.out = 24),
   rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
 )
+.right_annot_col <- list(
+      'genotype 10 days' = c('sig'='#114355', 'ns'='white'),
+      'genotype 10 weeks' = c('sig'='#665200', 'ns'='white')
+)
+for (go_name in names(go_genes)) {
+  .right_annot_col[[go_name]] <- c('sig'='black', 'ns'='white')
+}
 
 path <- paste0('results/complex-heatmap/genotype-edger-', tiss, '_raster.svg')
-svg(path, width = 10, height = 16)
+svg(path, width = 13, height = 16)
 h_cerebrum <- Heatmap(
   .x,
   column_title = paste('genotype effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
@@ -657,26 +697,40 @@ h_cerebrum <- Heatmap(
   row_dend_width = unit(3, 'cm'),
   row_split = 4,
   column_split = rep(1:4, each = 5),
+  column_names_rot = 45,
+  width = unit(350, 'points'),
   top_annotation = c(
     columnAnnotation(
       age = as.character(plot_info_cerebrum$age_days),
       genotype = as.character(plot_info_cerebrum$genotype),
       col = list(
-        'age' = c('10' = 'green', '70' = 'magenta'),
-        'genotype' = c('wt' = 'yellow', 'mdx' = 'black')
+        'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
+        'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
       )
     )
   ),
-  right_annotation = rowAnnotation(
-    `genotype 10 days` = plot_data$genotype_10,
-    `genotype 70 days` = plot_data$genotype_70,
-    row_names = anno_mark(
-      at = plot_data_genes$at,
-      labels = plot_data_genes$gene_name,
+  right_annotation = c(
+    rowAnnotation(
+      df = anno_data_right %>% select(starts_with('genotype')),
+      gap = unit(5, 'points'),
+      annotation_name_rot = 45,
+      col = .right_annot_col
     ),
-    col = list(
-      'genotype 10 days' = c('sig'='green', 'ns'='white'),
-      'genotype 70 days' = c('sig'='magenta', 'ns'='white')
+    rowAnnotation(
+      df = anno_data_right %>% select(contains('GO:')),
+      row_names = anno_mark(
+        at = plot_data_genes$at,
+        labels = plot_data_genes$gene_name,
+      ),
+      annotation_label = c(
+        '', 'synaptic transmission', 'carbohydrate catabolism',
+        'mRNA processing', 'mRNA splicing',
+        'generation of neurons', 'axonogenesis',
+        'membrane protein targeting', 'ER protein targeting'
+      ),
+      gap = unit(5, 'points'),
+      annotation_name_rot = 45,
+      col = .right_annot_col
     )
   ),
   use_raster = TRUE,
@@ -878,6 +932,15 @@ edger_genes_cerebellum %>%
 
 ```{r draw_heatmap, echo=FALSE, fig.align="center", fig.width=10, fig.height=14, results='asis', include=TRUE, warning=FALSE}
 fdr_th <- 0.1
+go_genes <- find_go_genes(
+  c(
+    'GO:1900034',  # https://maayanlab.cloud/Enrichr/enrich?dataset=c775ed219cdea7ad23122f822d15924e
+    'GO:0033146',  # https://maayanlab.cloud/Enrichr/enrich?dataset=744e4f18c6894a38767037523d521681
+    'GO:0006936'  # https://maayanlab.cloud/Enrichr/enrich?dataset=9080d555d5451496d428446459a94a0a
+    # 'GO:2000812', 'GO:0060441'  # https://maayanlab.cloud/Enrichr/enrich?dataset=dad307fc0684fb36a26f1acfd300c201
+  ),
+  go_db = go_biological_process_2021
+)
 
 plot_data <-
   counts_cerebellum %>%
@@ -886,7 +949,23 @@ plot_data <-
   mutate(
     genotype_10 = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
     genotype_70 = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
+  ) %>%
+  arrange(FDR.genotype)
+
+anno_data_right <-
+  plot_data %>%
+  transmute(
+    gene_name = gene_name,
+    `genotype 10 days` = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
+    `genotype 10 weeks` = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
   )
+for (go_name in names(go_genes)) {
+  anno_data_right <- mutate(
+      anno_data_right,
+      "{ go_name }" := if_else(toupper(gene_name) %in% go_genes[[go_name]], 'sig', 'ns')
+    )
+}
+anno_data_right <- as.data.frame(anno_data_right)
 
 .x <-
   plot_data %>%
@@ -904,9 +983,16 @@ colnames(.x) <-
   seq(-2.5, 2.5, length.out = 24),
   rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
 )
+.right_annot_col <- list(
+      'genotype 10 days' = c('sig'='#15546a', 'ns'='white'),
+      'genotype 10 weeks' = c('sig'='#806600', 'ns'='white')  # little lighter than cerebrum
+)
+for (go_name in names(go_genes)) {
+  .right_annot_col[[go_name]] <- c('sig'='gray20', 'ns'='white')
+}
 
 path <- paste0('results/complex-heatmap/genotype-edger-', tiss, '.svg')
-svg(path, width = 10, height = 16)
+svg(path, width = 12, height = 18)
 h_cerebellum <- Heatmap(
   .x,
   column_title = paste('genotype effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
@@ -916,23 +1002,28 @@ h_cerebellum <- Heatmap(
   row_names_side = 'right',
   row_dend_width = unit(3, 'cm'),
   row_split = 4,
+  column_names_rot = 45,
   column_split = rep(1:4, each = 5),
   top_annotation = c(
     columnAnnotation(
       age = as.character(plot_info_cerebellum$age_days),
       genotype = as.character(plot_info_cerebellum$genotype),
       col = list(
-        'age' = c('10' = 'green', '70' = 'magenta'),
-        'genotype' = c('wt' = 'yellow', 'mdx' = 'black')
+        'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
+        'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
       )
     )
   ),
-  right_annotation = rowAnnotation(
-    `genotype 10 days` = plot_data$genotype_10,
-    `genotype 70 days` = plot_data$genotype_70,
-    col = list(
-      'genotype 10 days' = c('sig'='green', 'ns'='white'),
-      'genotype 70 days' = c('sig'='magenta', 'ns'='white')
+  right_annotation = c(
+    rowAnnotation(
+      df = select(anno_data_right, -gene_name),
+      annotation_label = c(
+        'genotype 10 days', 'genotype 10 weeks',
+        'response to heat', 'estrogen receptor signaling', 'muscle contraction'
+      ),
+      gap = unit(5, 'points'),
+      annotation_name_rot = 45,
+      col = .right_annot_col
     )
   )
 )
