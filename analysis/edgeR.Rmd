@@ -307,11 +307,11 @@ counts_cerebellum <-
 ```{r}
 plot_info <-
   sample_info %>%
-  arrange(age_days, desc(tissue), desc(genotype)) %>%
+  arrange(desc(tissue), age_days, desc(genotype)) %>%
   mutate(
     `wt / mdx` = if_else(genotype == 'wt', 'yellow', 'black'),
-    `cerebrum / cerebellum` = if_else(tissue == 'cerebrum', 'red', 'blue'),
     `10 days / 70 days` = if_else(age_days == 10, 'green', 'magenta'),
+    `cerebrum / cerebellum` = if_else(tissue == 'cerebrum', 'red', 'blue'),
   )
 ```
 
