@@ -943,7 +943,6 @@ edger_genes_cerebellum %>%
   write_csv('results/complex-heatmap/edger-cerebellum.csv')
 ```
 
-
 ```{r draw_heatmap, echo=FALSE, fig.align="center", fig.width=10, fig.height=14, results='asis', include=TRUE, warning=FALSE}
 fdr_th <- 0.05
 go_genes <- find_go_genes(
@@ -1057,6 +1056,65 @@ plot_data %>%
   select(gene_name, contains('logFC.genotype'), contains('FDR.genotyp')) %>%
   mutate(across(contains('logFC'), `-`)) %>%
   write_csv(paste0('results/complex-heatmap/', tiss, '-fold13-cv02.csv'))
+```
+
+```{r draw_heatmap_interaction, echo=FALSE, fig.align="center", fig.width=10, fig.height=7, results='asis', include=TRUE, warning=FALSE}
+fdr_th <- 0.1
+
+plot_data <-
+  counts_cerebellum %>%
+  full_join(edger_genes_cerebellum, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(FDR.interaction < fdr_th, !is.na(gene_name)) %>%
+  arrange(FDR.interaction)
+
+.x <-
+  plot_data %>%
+  select(any_of(plot_info_cerebellum$id)) %>%
+  as.matrix() %>%
+  { t(scale(t(.))) }
+rownames(.x) <- plot_data$gene_name
+colnames(.x) <-
+  tibble(id = colnames(.x)) %>%
+  left_join(sample_info, by = 'id') %>%
+  mutate(age_days = if_else(age_days == 10, '10 days', '10 weeks')) %>%
+  unite('col_names', genotype, age_days, sep = ' ') %>%
+  pull(col_names)
+.col_fun <- colorRamp2(
+  seq(-2.5, 2.5, length.out = 24),
+  rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
+)
+
+path <- paste0('results/complex-heatmap/genotype-edger-', tiss, '-interaction-fdr01.png')
+png(path, width = 1000, height = 600, res = 120)
+h_cerebellum <- Heatmap(
+  .x,
+  column_title = paste('interaction effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
+  cluster_columns = FALSE,
+  clustering_distance_rows = function(x) as.dist(1-cor(t(x))),
+  col = .col_fun,
+  row_names_side = 'right',
+  row_dend_width = unit(3, 'cm'),
+  row_split = 4,
+  column_names_rot = 45,
+  column_split = rep(1:4, each = 5),
+  top_annotation = c(
+    columnAnnotation(
+      age = as.character(plot_info_cerebellum$age_days),
+      genotype = as.character(plot_info_cerebellum$genotype),
+      col = list(
+        'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
+        'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
+      )
+    )
+  ),
+)
+draw(h_cerebellum)
+dev.off()
+
+plot_data %>%
+  select(gene_name, contains('logFC.interaction'), contains('FDR.interaction')) %>%
+  mutate(across(contains('logFC'), `-`)) %>%
+  write_csv(paste0('results/complex-heatmap/', tiss, '-interaction-fdr01.csv'))
 ```
 
 ```{r}
