@@ -1214,16 +1214,16 @@ plot_data <-
   ) %>%
   mutate(
     logFC.genotype.cerebrum = case_when(
-      abs(logFC.genotype.cerebrum) >= 1 & sign(logFC.genotype.cerebrum) > 0 ~ '4upup',
-      abs(logFC.genotype.cerebrum) < 1 & sign(logFC.genotype.cerebrum) > 0 ~ '3up',
-      abs(logFC.genotype.cerebrum) < 1 & sign(logFC.genotype.cerebrum) < 0 ~ '2down',
-      abs(logFC.genotype.cerebrum) >= 1 & sign(logFC.genotype.cerebrum) < 0 ~ '1downdown',
+      abs(logFC.genotype.cerebrum) >= 1 & sign(logFC.genotype.cerebrum) < 0 ~ '4upup',
+      abs(logFC.genotype.cerebrum) < 1 & sign(logFC.genotype.cerebrum) < 0 ~ '3up',
+      abs(logFC.genotype.cerebrum) < 1 & sign(logFC.genotype.cerebrum) > 0 ~ '2down',
+      abs(logFC.genotype.cerebrum) >= 1 & sign(logFC.genotype.cerebrum) > 0 ~ '1downdown',
     ),
     logFC.genotype.cerebellum = case_when(
-      abs(logFC.genotype.cerebellum) >= 1 & sign(logFC.genotype.cerebellum) > 0 ~ '4upup',
-      abs(logFC.genotype.cerebellum) < 1 & sign(logFC.genotype.cerebellum) > 0 ~ '3up',
-      abs(logFC.genotype.cerebellum) < 1 & sign(logFC.genotype.cerebellum) < 0 ~ '2down',
-      abs(logFC.genotype.cerebellum) >= 1 & sign(logFC.genotype.cerebellum) < 0 ~ '1downdown',
+      abs(logFC.genotype.cerebellum) >= 1 & sign(logFC.genotype.cerebellum) < 0 ~ '4upup',
+      abs(logFC.genotype.cerebellum) < 1 & sign(logFC.genotype.cerebellum) < 0 ~ '3up',
+      abs(logFC.genotype.cerebellum) < 1 & sign(logFC.genotype.cerebellum) > 0 ~ '2down',
+      abs(logFC.genotype.cerebellum) >= 1 & sign(logFC.genotype.cerebellum) > 0 ~ '1downdown',
     ),
   ) %>%
   arrange(
