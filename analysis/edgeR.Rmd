@@ -1316,3 +1316,218 @@ h_merged <- Heatmap(
 draw(h_merged)
 dev.off()
 ```
+
+
+# Show selected genes
+
+```{r read_selected_genes}
+genes_wawa <- read_tsv('raw/gene-list-wawa.csv', show_col_types = FALSE)$Genes
+stopifnot(genes_wawa %in% counts$gene_name)
+
+fdr_th <- 0.1
+```
+
+```{r}
+counts_cerebrum %>%
+  full_join(edger_genes_cerebrum, by = c('gene_stable_id', 'gene_name')) %>%
+  select(-gene_description, -chr, -gene_type) %>%
+  filter(gene_name %in% genes_wawa) %>%
+  write_csv('results/selected-genes/selected-genes-cerebrum.csv', na = '')
+
+counts_cerebellum %>%
+  full_join(edger_genes_cerebellum, by = c('gene_stable_id', 'gene_name')) %>%
+  select(-gene_description, -chr, -gene_type) %>%
+  filter(gene_name %in% genes_wawa) %>%
+  write_csv('results/selected-genes/selected-genes-cerebellum.csv', na = '')
+```
+
+## Cerebrum
+
+```{r edger_cerebrum}
+tiss = 'cerebrum'
+
+plot_info_cerebrum <-
+  plot_info %>%
+  filter(tissue == tiss) %>%
+  mutate(
+    `cerebrum /` = `cerebrum / cerebellum`,
+    .before = `cerebrum / cerebellum`,
+    .keep = 'unused'
+  )
+
+.outlier_gene <- 'mt-Co1'
+```
+
+```{r draw_heatmap_selected_cerebrum, echo=FALSE, fig.align="center", fig.height=20, fig.width=12, results='asis', include=TRUE, warning=FALSE}
+plot_data <-
+  counts_cerebrum %>%
+  full_join(edger_genes_cerebrum, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(gene_name %in% genes_wawa) %>%
+  arrange(FDR.genotype)
+
+anno_data_right <-
+  plot_data %>%
+  transmute(
+    gene_name = gene_name,
+    `genotype 10 days` = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
+    `genotype 10 weeks` = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
+  )
+anno_data_right <- as.data.frame(anno_data_right)
+
+.outlier_gene_raw <- counts_cerebrum_raw %>%
+  filter(gene_name == .outlier_gene) %>%
+  select(starts_with('sample_'))
+plot_data[plot_data$gene_name == .outlier_gene, names(.outlier_gene_raw)] <- .outlier_gene_raw
+plot_data$gene_name[plot_data$gene_name == .outlier_gene] <- paste(.outlier_gene, '(RAW COUNTS)')
+.x <-
+  plot_data %>%
+  select(any_of(plot_info_cerebrum$id)) %>%
+  as.matrix() %>%
+  { t(scale(t(.))) }
+.hc_cerebrum <-
+  .x %>%
+  (function(x) { 1 - cor(t(x)) }) %>%  # correlation as distance
+  as.dist() %>%
+  hclust()
+rownames(.x) <- plot_data$gene_name
+colnames(.x) <-
+  tibble(id = colnames(.x)) %>%
+  left_join(sample_info, by = 'id') %>%
+  mutate(age_days = if_else(age_days == 10, '10 days', '10 weeks')) %>%
+  unite('col_names', genotype, age_days, sep = ' ') %>%
+  pull(col_names)
+.col_fun <- colorRamp2(
+  seq(-2.5, 2.5, length.out = 24),
+  rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
+)
+.right_annot_col <- list(
+      'genotype 10 days' = c('sig'='#114355', 'ns'='white'),
+      'genotype 10 weeks' = c('sig'='#665200', 'ns'='white')
+)
+
+svg('results/selected-genes/selected-genes-cerebrum.svg', width = 11, height = 7.3)
+h_cerebrum <- Heatmap(
+  .x,
+  column_title = paste('Heatmap of selected genes in', tiss),
+  cluster_columns = FALSE,
+  cluster_rows = .hc_cerebrum,
+  col = .col_fun,
+  row_names_side = 'right',
+  show_row_names = TRUE,
+  row_dend_width = unit(3, 'cm'),
+  row_split = 4,
+  column_split = rep(1:4, each = 5),
+  column_names_rot = 45,
+  width = unit(350, 'points'),
+  top_annotation = c(
+    columnAnnotation(
+      age = as.character(plot_info_cerebrum$age_days),
+      genotype = as.character(plot_info_cerebrum$genotype),
+      col = list(
+        'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
+        'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
+      )
+    )
+  ),
+  right_annotation = c(
+    rowAnnotation(
+      df = anno_data_right %>% select(starts_with('genotype')),
+      gap = unit(5, 'points'),
+      annotation_name_rot = 45,
+      col = .right_annot_col
+    )
+  ),
+)
+draw(h_cerebrum)
+dev.off()
+```
+
+## Cerebellum
+
+```{r edger_cerebellum}
+tiss = 'cerebellum'
+
+plot_info_cerebellum <-
+  plot_info %>%
+  filter(tissue == tiss) %>%
+  mutate(
+    `/ cerebellum` = `cerebrum / cerebellum`,
+    .before = `cerebrum / cerebellum`,
+    .keep = 'unused'
+  )
+```
+
+```{r draw_heatmap_selected_cerebellum, echo=FALSE, fig.align="center", fig.width=10, fig.height=14, results='asis', include=TRUE, warning=FALSE}
+plot_data <-
+  counts_cerebellum %>%
+  full_join(edger_genes_cerebellum, by = c('gene_stable_id', 'gene_name')) %>%
+  filter(gene_name %in% genes_wawa) %>%
+  arrange(FDR.genotype)
+
+anno_data_right <-
+  plot_data %>%
+  transmute(
+    gene_name = gene_name,
+    `genotype 10 days` = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
+    `genotype 10 weeks` = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
+  )
+anno_data_right <- as.data.frame(anno_data_right)
+
+.x <-
+  plot_data %>%
+  select(any_of(plot_info_cerebellum$id)) %>%
+  as.matrix() %>%
+  { t(scale(t(.))) }
+rownames(.x) <- plot_data$gene_name
+colnames(.x) <-
+  tibble(id = colnames(.x)) %>%
+  left_join(sample_info, by = 'id') %>%
+  mutate(age_days = if_else(age_days == 10, '10 days', '10 weeks')) %>%
+  unite('col_names', genotype, age_days, sep = ' ') %>%
+  pull(col_names)
+.col_fun <- colorRamp2(
+  seq(-2.5, 2.5, length.out = 24),
+  rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
+)
+.right_annot_col <- list(
+      'genotype 10 days' = c('sig'='#15546a', 'ns'='white'),
+      'genotype 10 weeks' = c('sig'='#806600', 'ns'='white')  # little lighter than cerebrum
+)
+
+svg('results/selected-genes/selected-genes-cerebellum.svg', width = 9.5, height = 7)
+h_cerebellum <- Heatmap(
+  .x,
+  column_title = paste('Heatmap of selected genes in', tiss),
+  cluster_columns = FALSE,
+  clustering_distance_rows = function(x) as.dist(1-cor(t(x))),
+  col = .col_fun,
+  row_names_side = 'right',
+  row_dend_width = unit(3, 'cm'),
+  row_split = 4,
+  column_names_rot = 45,
+  column_split = rep(1:4, each = 5),
+  top_annotation = c(
+    columnAnnotation(
+      age = as.character(plot_info_cerebellum$age_days),
+      genotype = as.character(plot_info_cerebellum$genotype),
+      col = list(
+        'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
+        'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
+      )
+    )
+  ),
+  right_annotation = c(
+    rowAnnotation(
+      df = select(anno_data_right, -gene_name, -contains('GO:')),
+      annotation_label = c(
+        'genotype 10 days', 'genotype 10 weeks'
+      ),
+      gap = unit(5, 'points'),
+      annotation_name_rot = 45,
+      col = .right_annot_col
+    )
+  )
+)
+draw(h_cerebellum)
+dev.off()
+```
