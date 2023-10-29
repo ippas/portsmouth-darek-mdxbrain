@@ -4,7 +4,6 @@
 
 
 ## Methods
-This sections should be a description of preprocessin and analysis ready to be included in the publication
 
 
 ## Preprocessing
@@ -15,6 +14,3 @@ Gene level counts come from two other repositories:
 Copied form `data/results` and `results/seq-results/` to `raw`.
 
 ## Analysis
-Details of analysis
-
-*notes: all files included in the repo need to be referenced, either in README or other .md files. The analysis has to be fully reproducible, in principle the repo should contain code + description of how to run it while data and results kept outside*

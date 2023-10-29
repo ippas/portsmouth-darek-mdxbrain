@@ -51,9 +51,6 @@ expression_dist_matrix <- function(counts_df) {
   counts_df %>%
   select(starts_with('sample_')) %>%
   as.matrix() %>%
-  # library(Rfast2)
-  # t() %>%
-  # dcora()  # correlation as distance
   dist(method = 'canberra') %>%
   as.matrix()
 }
@@ -84,7 +81,6 @@ overlap_ratio_matrix <- function(counts_df){
       longer_range = pmax(query_end - query_start, subject_end - subject_start),
     ) %>%
     mutate(
-      # ratio = overlap_width / longer_range
       ratio = if_else(query_chr == subject_chr, overlap_width / shorter_range, 0)
     )
     
@@ -234,7 +230,6 @@ counts_chr <-
   rename(start=`Gene start (bp)`, end=`Gene end (bp)`) %>%
   select(gene_stable_id, gene_name, chr, start, end, starts_with('sample_')) %>%
   mutate(g = chr %in% chr_subset)
-  # mutate(dup = duplicated(gene_name))
 
 dist_matrix <- expression_dist_matrix(filter(counts_chr, g))
 overlap_matrix <- overlap_ratio_matrix(filter(counts_chr, g))
@@ -400,7 +395,6 @@ edger_model <- function(x, sample_info_groups, tissue=NA, contrast='genotype'){
 }
 ```
 
-
 ```{r edger_statistic}
 .cerebrum_edger <- function(contrast) {
   edger_model(
@@ -517,71 +511,6 @@ edger_genes_tissues <-
 ```
 
 
-# All tissues
-
-```{r}
-x <- select(counts_raw, matches('sample_'))
-sample_info_groups <-
-  sample_info %>%
-    mutate(group = paste(genotype, age_days, tissue, sep = '_'))
-
-edger_genes <-
-  edger_model(x, sample_info_groups) %>%
-  mutate(
-    gene_name = counts_raw[as.numeric(.$row_index), ]$gene_name,
-    gene_stable_id = counts_raw[as.numeric(.$row_index), ]$gene_stable_id,
-    .before = everything()
-  ) %>%
-  select(-row_index)
-```
-
-```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=15, fig.width=10, results='asis', include=TRUE, warning=FALSE}
-plot_data <-
-  counts %>%
-  full_join(edger_genes, by = c('gene_stable_id', 'gene_name')) %>%
-  filter(FDR < 0.001)
-
-.x <- plot_data %>% select(all_of(plot_info$id)) %>% as.matrix()
-rownames(.x) <- plot_data$gene_name
-.rdbu_ramp <- colorRampPalette(brewer.pal(11, "RdBu"))
-.col_side_colors <- plot_info %>% select(contains('/')) %>% as.matrix()
-.way = 'genotype / genotype:tissue / genotype:age_days / genotype:tissue:age_days'
-
-h <- heatmap.3(
-    x = .x,
-    main = 'edgeR',
-    Rowv = TRUE,
-    Colv = FALSE,
-    dendrogram = 'row',
-    distfun = function(x) as.dist(1-cor(t(x))),
-    scale = "row",
-    breaks = seq(-2.5, 2.5, length.out = 25),
-    col = rev(.rdbu_ramp(24)),
-    trace = "none",
-    ColSideColors = .col_side_colors,
-    ColSideColorsSize = 6,
-    key = FALSE,
-    lhei = c(1.5, 20),
-    lwid = c(1,5),
-    cexRow = 1.2,
-    cexCol = 1.5,
-    margins = c(9, 8),
-)
-```
-
-```{r}
-ct <- cutree(as.hclust(h$rowDendrogram), k = 4)
-ct_heatmap_order <- ct[rev(h$rowInd)]
-
-clusters <- tibble(gene_name = names(ct_heatmap_order), cluster = ct_heatmap_order)
-
-clusters %>%
-  filter(cluster != 0) %>%
-  pull(gene_name) %>%
-  paste(collapse = '\n') %>%
-  cat
-```
-
 
 # Cerebrum
 
@@ -608,7 +537,7 @@ edger_genes_cerebrum %>%
     `genotype 10 weeks regulation` = if_else(logFC.genotype_70 < 0, 'up', 'down'),
   ) %>%
   mutate(
-    across(starts_with('logFC'), .fns = function(x) { x * -1 }),
+    across(starts_with('logFC'), .fns = function(x) { x * -1 }),  # contrasts should be negated
   ) %>%
   rename(
     `fold genotype` = logFC.genotype,
@@ -633,7 +562,7 @@ edger_genes_cerebrum %>%
 ```
 
 ```{r draw_heatmap_03, echo=FALSE, fig.align="center", fig.height=20, fig.width=12, results='asis', include=TRUE, warning=FALSE}
-fdr_th <- 0.05
+fdr_th <- 0.1
 top_n_genes <- 10L
 go_genes <- find_go_genes(
   c(
@@ -649,16 +578,7 @@ plot_data <-
   counts_cerebrum %>%
   full_join(edger_genes_cerebrum, by = c('gene_stable_id', 'gene_name')) %>%
   filter(FDR.genotype < fdr_th) %>%
-  filter(pmax(abs(logFC.genotype_10), abs(logFC.genotype_70)) >= 1.3) %>%
   filter(gene_stable_id != 'ENSMUSG00000064351') %>%  # after  quantile normalization it's top in all samples (all values are the same)
-  mutate(
-    cv_BD = apply(select(., starts_with('sample_BD')), 1, function(x) {sd(x) / mean(x)}),
-    cv_BW = apply(select(., starts_with('sample_BW')), 1, function(x) {sd(x) / mean(x)}),
-    cv_MD = apply(select(., starts_with('sample_MD')), 1, function(x) {sd(x) / mean(x)}),
-    cv_MW = apply(select(., starts_with('sample_MW')), 1, function(x) {sd(x) / mean(x)}),
-    max_cv = pmax(cv_BD, cv_BW, cv_MD, cv_MW)
-  ) %>%
-  filter((max_cv < 0.2)) %>%
   arrange(FDR.genotype)
 
 anno_data_right <-
@@ -718,8 +638,10 @@ for (go_name in names(go_genes)) {
   .right_annot_col[[go_name]] <- c('sig'='black', 'ns'='white')
 }
 
-path <- paste0('results/complex-heatmap/genotype-edger-', tiss, '-fold13-sd02.svg')
-svg(path, width = 13, height = 7)
+.path_base <- paste0(
+  'results/complex-heatmap/genotype-edger-', tiss, '-fdr-', fdr_th
+)
+svg(paste0(.path_base, '.svg'), width = 13, height = 20)
 h_cerebrum <- Heatmap(
   .x,
   column_title = paste('genotype effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
@@ -770,12 +692,12 @@ h_cerebrum <- Heatmap(
   use_raster = TRUE,
 )
 draw(h_cerebrum)
-dev.off()
+dev.off()  # fig. 2
 
 plot_data %>%
   select(gene_name, contains('logFC.genotype'), contains('FDR.genotyp')) %>%
   mutate(across(contains('logFC'), `-`)) %>%
-  write_csv(paste0('results/complex-heatmap/', tiss, '-fold13-cv02.csv'))
+  write_csv(paste0(.path_base, '.csv'))
 ```
 
 ```{r}
@@ -796,7 +718,7 @@ for (ct_heatmap_order in row_order(h_cerebrum)) {
 }
 
 clusters_cerebrum %>%
-  write_csv(paste0('results/complex-heatmap/edger-', tiss, '-clusters-', fdr_th, '.csv'))
+  write_csv(paste0(.path_base, '-clusters.csv'))
 ```
 
 ```{r venn}
@@ -969,7 +891,7 @@ edger_genes_cerebellum %>%
 ```
 
 ```{r draw_heatmap, echo=FALSE, fig.align="center", fig.width=10, fig.height=14, results='asis', include=TRUE, warning=FALSE}
-fdr_th <- 0.05
+fdr_th <- 0.1
 go_genes <- find_go_genes(
   c(
     'GO:1900034',  # https://maayanlab.cloud/Enrichr/enrich?dataset=c775ed219cdea7ad23122f822d15924e
@@ -988,15 +910,6 @@ plot_data <-
     genotype_10 = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
     genotype_70 = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
   ) %>%
-  mutate(
-    cv_BD = apply(select(., sample_BD1:sample_BD5), 1, function(x) {sd(x) / mean(x)}),
-    cv_BW = apply(select(., sample_BW1:sample_BW5), 1, function(x) {sd(x) / mean(x)}),
-    cv_MD = apply(select(., sample_MD1:sample_MD5), 1, function(x) {sd(x) / mean(x)}),
-    cv_MW = apply(select(., sample_MW1:sample_MW5), 1, function(x) {sd(x) / mean(x)}),
-    max_cv = pmax(cv_BD, cv_BW, cv_MD, cv_MW),
-  ) %>%
-  filter((max_cv < 0.2)) %>%
-  filter(pmax(abs(logFC.genotype_10), abs(logFC.genotype_70)) >= 1.3) %>%
   arrange(FDR.genotype)
 
 anno_data_right <-
@@ -1038,8 +951,10 @@ for (go_name in names(go_genes)) {
   .right_annot_col[[go_name]] <- c('sig'='gray20', 'ns'='white')
 }
 
-path <- paste0('results/complex-heatmap/genotype-edger-', tiss, '-fold13-cv02.svg')
-svg(path, width = 12, height = 6)
+.path_base <- paste0(
+  'results/complex-heatmap/genotype-edger-', tiss, '-fdr-', fdr_th
+)
+svg(paste0(.path_base, '.svg'), width = 12, height = 6)
 h_cerebellum <- Heatmap(
   .x,
   column_title = paste('genotype effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
@@ -1080,7 +995,7 @@ dev.off()
 plot_data %>%
   select(gene_name, contains('logFC.genotype'), contains('FDR.genotyp')) %>%
   mutate(across(contains('logFC'), `-`)) %>%
-  write_csv(paste0('results/complex-heatmap/', tiss, '-fold13-cv02.csv'))
+  write_csv(paste0(.path_base, '.csv'))
 ```
 
 ```{r draw_heatmap_interaction, echo=FALSE, fig.align="center", fig.width=10, fig.height=7, results='asis', include=TRUE, warning=FALSE}
@@ -1109,8 +1024,10 @@ colnames(.x) <-
   rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
 )
 
-path <- paste0('results/complex-heatmap/genotype-edger-', tiss, '-interaction-fdr01.png')
-png(path, width = 1000, height = 600, res = 120)
+.path_base <- paste0(
+  'results/complex-heatmap/genotype-edger-', tiss, '-interaction-fdr', fdr_th
+)
+png(paste0(.path_base, '.png'), width = 1000, height = 600, res = 120)
 h_cerebellum <- Heatmap(
   .x,
   column_title = paste('interaction effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
@@ -1134,12 +1051,12 @@ h_cerebellum <- Heatmap(
   ),
 )
 draw(h_cerebellum)
-dev.off()
+dev.off()  # fig. 6
 
 plot_data %>%
   select(gene_name, contains('logFC.interaction'), contains('FDR.interaction')) %>%
   mutate(across(contains('logFC'), `-`)) %>%
-  write_csv(paste0('results/complex-heatmap/', tiss, '-interaction-fdr01.csv'))
+  write_csv(paste0(.path_base, '.csv'))
 ```
 
 ```{r}
@@ -1160,7 +1077,7 @@ for (ct_heatmap_order in row_order(h_cerebellum)) {
 }
 
 clusters_cerebellum %>%
-  write_csv(paste0('results/complex-heatmap/edger-', tiss, '-clusters-', fdr_th, '.csv'))
+  write_csv(paste0(.path_base, '-clusters', '.csv'))
 ```
 
 ```{r venn2}
@@ -1283,70 +1200,11 @@ ggsave(
 
 
 
-# Merge
-
-```{r draw_heatmap_merged, echo=FALSE, fig.align="center", fig.width=7, fig.height=10, results='asis', include=TRUE, warning=FALSE}
-fdr_th <- 0.1
-
-plot_data <-
-  edger_genes_tissues %>%
-  filter(FDR.genotype.cerebrum < fdr_th, FDR.genotype.cerebellum < fdr_th) %>%
-  select(
-    gene_name, FDR.genotype.cerebrum, FDR.genotype.cerebellum,
-    logFC.genotype.cerebrum, logFC.genotype.cerebellum,
-  ) %>%
-  mutate(
-    logFC.genotype.cerebrum = case_when(
-      abs(logFC.genotype.cerebrum) >= 1 & sign(logFC.genotype.cerebrum) < 0 ~ '4upup',
-      abs(logFC.genotype.cerebrum) < 1 & sign(logFC.genotype.cerebrum) < 0 ~ '3up',
-      abs(logFC.genotype.cerebrum) < 1 & sign(logFC.genotype.cerebrum) > 0 ~ '2down',
-      abs(logFC.genotype.cerebrum) >= 1 & sign(logFC.genotype.cerebrum) > 0 ~ '1downdown',
-    ),
-    logFC.genotype.cerebellum = case_when(
-      abs(logFC.genotype.cerebellum) >= 1 & sign(logFC.genotype.cerebellum) < 0 ~ '4upup',
-      abs(logFC.genotype.cerebellum) < 1 & sign(logFC.genotype.cerebellum) < 0 ~ '3up',
-      abs(logFC.genotype.cerebellum) < 1 & sign(logFC.genotype.cerebellum) > 0 ~ '2down',
-      abs(logFC.genotype.cerebellum) >= 1 & sign(logFC.genotype.cerebellum) > 0 ~ '1downdown',
-    ),
-  ) %>%
-  arrange(
-    logFC.genotype.cerebrum,
-    desc(logFC.genotype.cerebellum)
-  ) %>%
-  filter(!is.na(gene_name))
-
-.x <-
-  plot_data %>%
-  select(starts_with('logFC')) %>%
-  as.matrix()
-rownames(.x) <- plot_data$gene_name
-.gap <- unit(0.3, 'mm')
-
-path <- paste0('results/complex-heatmap/genotype-edger-merged.svg')
-svg(path, width = 5, height = 10)
-h_merged <- Heatmap(
-  .x,
-  column_title = paste('genotype effect in both tissues, FDR <', format(fdr_th, scientific = FALSE)),
-  cluster_columns = FALSE,
-  cluster_rows = FALSE,
-  column_split = 1:2,
-  row_gap = .gap,
-  column_gap = .gap,
-  row_split = 1:dim(.x)[1],
-  col = c('4upup' = '#D55F4FFF', '3up' = '#F9C8AFFF', '2down' = '#BBDAE9FF', '1downdown' = '#3883BAFF'),
-  row_names_side = 'left',
-  show_row_names = TRUE,
-  width = unit(3, 'cm'),
-)
-draw(h_merged)
-dev.off()
-```
-
-
 # Show selected genes
 
 ```{r read_selected_genes}
 genes_wawa <- read_tsv('raw/gene-list-wawa.csv', show_col_types = FALSE)$Genes
+genes_wawa <- setdiff(genes_wawa, c('Dmd', 'Gphn', 'Dag1', 'Tfam', 'Pklr'))
 stopifnot(genes_wawa %in% counts$gene_name)
 
 fdr_th <- 0.1
@@ -1464,7 +1322,7 @@ h_cerebrum <- Heatmap(
   ),
 )
 draw(h_cerebrum)
-dev.off()
+dev.off()  # fig. 4
 ```
 
 ## Cerebellum
