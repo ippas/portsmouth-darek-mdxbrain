@@ -156,9 +156,6 @@ go_biological_process_2021 <- read_lines(
   'data/GO_Biological_Process_2021.txt',
 )
 
-sample_info_rds_path <- 'data/sample_info.RDS'
-sample_info <- readRDS(sample_info_rds_path)
-
 counts_cerebrum_raw <-
   read_tsv('raw/cerebrum_gene-level-counts-annotated.tsv') %>%
   rename(
@@ -196,6 +193,34 @@ counts_raw <-
     gene_name = `Gene name`,
     gene_type = `Gene type`,
     gene_synonym = `Gene Synonym`
+  )
+
+.sample_pattern <- "(sample_(\\w)(\\w)\\d)(C?)"
+sample_info <-
+  tibble(id = colnames(counts_raw)) %>%
+  mutate(mouse_id = str_match(id, .sample_pattern)[, 2]) %>%
+  filter(!is.na(mouse_id)) %>%
+  mutate(
+    genotype = str_match(id, .sample_pattern)[,3],
+    age_days = str_match(id, .sample_pattern)[,4],
+    tissue = str_match(id, .sample_pattern)[,5],
+  ) %>%
+  mutate(
+    genotype = if_else(
+      genotype == 'B',
+      'wt',
+      if_else(genotype == 'M', 'mdx', NA)
+    ),
+    age_days = if_else(
+      age_days == 'D',
+      10,
+      if_else(age_days == 'W', 70, NA)
+    ),
+    tissue = if_else(
+      tissue == 'C',
+      'cerebrum',
+      if_else(tissue == '', 'cerebellum', NA)
+    ),
   )
 ```
 
