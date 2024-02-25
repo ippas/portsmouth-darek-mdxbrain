@@ -1414,3 +1414,26 @@ h_cerebellum <- Heatmap(
 draw(h_cerebellum)
 dev.off()
 ```
+
+
+Additional analyses
+
+```{r}
+read_csv('results/complex-heatmap/edger-cerebellum.csv') %>%
+  select(gene_name, gene_stable_id, contains('genotype 10 days')) %>%
+  filter(`genotype 10 days FDR` < 0.1) %>%
+  write_csv('results/degs/cerebellum-days.csv')
+read_csv('results/complex-heatmap/edger-cerebellum.csv') %>%
+  select(gene_name, gene_stable_id, contains('genotype 10 weeks')) %>%
+  filter(`genotype 10 weeks FDR` < 0.1) %>%
+  write_csv('results/degs/cerebellum-weeks.csv')
+
+read_csv('results/complex-heatmap/edger-cerebrum.csv') %>%
+  select(gene_name, gene_stable_id, contains('genotype 10 days')) %>%
+  filter(`genotype 10 days FDR` < 0.1) %>%
+  write_csv('results/degs/cerebrum-days.csv')
+read_csv('results/complex-heatmap/edger-cerebrum.csv') %>%
+  select(gene_name, gene_stable_id, contains('genotype 10 weeks')) %>%
+  filter(`genotype 10 weeks FDR` < 0.1) %>%
+  write_csv('results/degs/cerebrum-weeks.csv')
+```
