@@ -33,6 +33,7 @@ BiocManager::install("preprocessCore", configure.args="--disable-threading")
 ```
 
 ```{r load_libraries, include=FALSE}
+library(magick)
 library(IRanges)
 library(sets)
 library(preprocessCore)
@@ -60,7 +61,7 @@ overlap_ratio_matrix <- function(counts_df){
     counts_df$start,
     counts_df$end
   )
-  
+
   overlap_pairs <-
     findOverlaps(query) %>%
     as.data.frame() %>%
@@ -83,13 +84,13 @@ overlap_ratio_matrix <- function(counts_df){
     mutate(
       ratio = if_else(query_chr == subject_chr, overlap_width / shorter_range, 0)
     )
-    
+
   overlap_matrix <- matrix(0, nrow = nrow(dist_matrix), ncol = ncol(dist_matrix))
   for (i in 1:nrow(overlap_pairs)) {
     query <- overlap_pairs[i, 'queryHits']
     subject <- overlap_pairs[i, 'subjectHits']
     ratio <- overlap_pairs[i, 'ratio']
-  
+
     overlap_matrix[query, subject] <- ratio
   }
   overlap_matrix
@@ -122,11 +123,11 @@ gene_sets <- function(m) {
       new_gene_sets[[length(new_gene_sets) + 1]] <- x
     }
   }
-  
+
   if (length(new_gene_sets) == 0) {
     return()
   }
-  
+
   old_gene_sets <- list()
   while(!identical(old_gene_sets, new_gene_sets)) {
     old_gene_sets <- new_gene_sets
@@ -237,7 +238,7 @@ result <- (overlap_matrix > 0.5) & (dist_matrix < 1.0)
 
 for (s in gene_sets(result)) {
   print(s)
-  genes <- 
+  genes <-
     counts_chr %>%
     filter(g) %>%
     slice(s) %>%
@@ -245,12 +246,12 @@ for (s in gene_sets(result)) {
     arrange(-sum) %>%
     slice(-1) %>%
     pull(gene_stable_id)
-  
-  
+
+
     counts_chr %>%
     filter(g) %>%
     slice(s) %>%print
-  
+
   duplicated_genes <- c(duplicated_genes, genes)
 }
 
@@ -260,7 +261,7 @@ result <- (overlap_matrix > 0.5) & (dist_matrix < 1)
 
 for (s in gene_sets(result)) {
   print(s)
-  genes <- 
+  genes <-
     counts_chr %>%
     filter(!g) %>%
     slice(s) %>%
@@ -272,7 +273,7 @@ for (s in gene_sets(result)) {
     counts_chr %>%
     filter(!g) %>%
     slice(s) %>%print
-  
+
   duplicated_genes <- c(duplicated_genes, genes)
 }
 
@@ -510,6 +511,40 @@ edger_genes_tissues <-
   )
 ```
 
+```{r result_util_function}
+cluster_stats <- function(z_scores, df, h) {
+  ct <- 1
+  clusters_df <- tibble()
+  for (ct_heatmap_order in row_order(h)) {
+    cluster_data <- slice(plot_data, ct_heatmap_order)
+    mean_z <- list()
+    for (group in list(c('wt 10 days'), c('mdx 10 days'), c('wt 10 weeks'), c('mdx 10 weeks'))) {
+      mean_z[[group]] <- mean(z_scores[ct_heatmap_order, colnames(z_scores) == group])
+    }
+
+    clusters_df <- bind_rows(
+      clusters_df,
+      tibble(
+        gene_name = cluster_data %>% pull(gene_name),
+        cluster = ct,
+        genotype_10 = cluster_data %>% pull(FDR.genotype_10) < fdr_th,
+        genotype_70 = cluster_data %>% pull(FDR.genotype_70) < fdr_th,
+        as_tibble(mean_z)
+      )
+    )
+    ct <- ct + 1
+  }
+
+  clusters_df %>%
+    group_by(cluster) %>%
+    summarise(
+      n = n(),
+      genotype_10_n = sum(genotype_10),
+      genotype_70_n = sum(genotype_70),
+      across(matches('days|weeks'), mean)
+    )
+}
+```
 
 
 # Cerebrum
@@ -631,17 +666,17 @@ colnames(.x) <-
   rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
 )
 .right_annot_col <- list(
-      'genotype 10 days' = c('sig'='#114355', 'ns'='white'),
-      'genotype 10 weeks' = c('sig'='#665200', 'ns'='white')
+      'genotype 10 days' = c('sig'='#114355', 'ns'='#ebebeb'),
+      'genotype 10 weeks' = c('sig'='#665200', 'ns'='#ebebeb')
 )
 for (go_name in names(go_genes)) {
-  .right_annot_col[[go_name]] <- c('sig'='black', 'ns'='white')
+  .right_annot_col[[go_name]] <- c('sig'='black', 'ns'='#ebebeb')
 }
 
 .path_base <- paste0(
   'results/complex-heatmap/genotype-edger-', tiss, '-fdr-', fdr_th
 )
-svg(paste0(.path_base, '.svg'), width = 13, height = 20)
+svg(paste0(.path_base, '.svg'), width = 14, height = 20)
 h_cerebrum <- Heatmap(
   .x,
   column_title = paste('genotype effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
@@ -654,6 +689,7 @@ h_cerebrum <- Heatmap(
   row_split = 4,
   column_split = rep(1:4, each = 5),
   column_names_rot = 45,
+  show_column_names = FALSE,
   width = unit(350, 'points'),
   top_annotation = c(
     columnAnnotation(
@@ -662,7 +698,9 @@ h_cerebrum <- Heatmap(
       col = list(
         'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
         'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
-      )
+      ),
+      show_legend = FALSE,
+      show_annotation_name = FALSE
     )
   ),
   right_annotation = c(
@@ -670,7 +708,8 @@ h_cerebrum <- Heatmap(
       df = anno_data_right %>% select(starts_with('genotype')),
       gap = unit(5, 'points'),
       annotation_name_rot = 45,
-      col = .right_annot_col
+      col = .right_annot_col,
+      show_legend = FALSE
     ),
     rowAnnotation(
       df = anno_data_right %>% select(contains('GO:')),
@@ -686,13 +725,37 @@ h_cerebrum <- Heatmap(
       ),
       gap = unit(5, 'points'),
       annotation_name_rot = 45,
-      col = .right_annot_col
+      col = .right_annot_col,
+      show_legend = FALSE
     )
+  ),
+  heatmap_legend_param = list(
+    title = 'heatmap z-score', at = -3:3, legend_height = unit(3, 'cm')
   ),
   use_raster = TRUE,
 )
 draw(h_cerebrum)
+for (i in 1:4) {
+  age_lab = ifelse(i %in% 1:2, '10 days', '10 weeks')
+  age_col = ifelse(i %in% 1:2, 'black', 'black')
+  gen_lab = ifelse(i %in% c(1, 3), 'C57BL/10', 'mdx')
+  gen_col = ifelse(i %in% c(1, 3), 'black', 'white')
+  decorate_annotation(
+    'age',
+    {grid.text(label = age_lab, gp = gpar(col = age_col, fontsize = 11))},
+    slice = i
+  )
+  decorate_annotation(
+    'genotype',
+    {grid.text(label = gen_lab, gp = gpar(col = gen_col, fontsize = 11))},
+    slice = i
+  )
+}
 dev.off()  # fig. 2
+image_read(paste0(.path_base, '.svg'))  # show heatmap in Viewer pane
+
+h <- draw(h_cerebrum)
+cluster_stats(.x, plot_data, h)
 
 plot_data %>%
   select(gene_name, contains('logFC.genotype'), contains('FDR.genotyp')) %>%
@@ -710,9 +773,14 @@ for (ct_heatmap_order in row_order(h_cerebrum)) {
     plot_data %>%
     slice(ct_heatmap_order) %>%
     pull(gene_name)
+  gen_10 <- plot_data %>% slice(ct_heatmap_order) %>% pull(FDR.genotype_10) < fdr_th
+  gen_70 <- plot_data %>% slice(ct_heatmap_order) %>% pull(FDR.genotype_70) < fdr_th
   clusters_cerebrum <- bind_rows(
     clusters_cerebrum,
-    tibble(gene_name = gene_names, cluster = ct)
+    tibble(
+      gene_name = gene_names, cluster = ct,
+      genotype_10 = gen_10, genotype_70 = gen_70
+    )
   )
   ct <- ct + 1
 }
@@ -740,8 +808,7 @@ venn_plot_data <-
   arrange(desc(age_regulation)) %>%
   mutate(name = paste(age_regulation, n)) %>%
   pull(name) %>%
-  paste0(collapse = ' / ') %>%
-  { paste0('age (', paste0(., collapse = ' / '), ')') }
+  { paste0('overall age effect \n', paste0(., collapse = ' \n ')) }
 .venn_genotype_name <- venn_plot_data %>%
   filter(genotype) %>%
   group_by(genotype_regulation) %>%
@@ -749,11 +816,11 @@ venn_plot_data <-
   arrange(desc(genotype_regulation)) %>%
   mutate(name = paste(genotype_regulation, n)) %>%
   pull(name) %>%
-  { paste0('genotype (', paste0(., collapse = ' / '), ')') }
+  { paste0('overall genotype effect \n', paste0(., collapse = ' \n ')) }
 
 ggplot() +
   geom_text(
-    mapping = aes(x = 0, y = 1.8),
+    mapping = aes(x = 0, y = 2.0),
     label = tiss,
     size = 6
   ) +
@@ -762,13 +829,11 @@ ggplot() +
     data = venn_plot_data,
     fill_color = c('#0073C2FF', '#EFC000FF'),
     set_names = c(.venn_age_name, .venn_genotype_name),
-    set_name_size = 4,
+    set_name_size = 5,
+    text_size = 5,
     auto_scale = TRUE,
     show_percentage = FALSE,
     show_outside = 'none',
-  ) +
-  labs(
-    caption = paste('Number of genes regulated by age or genotype in', tiss, '; FDR <', th)
   ) +
   coord_fixed() +
   theme_void()
@@ -785,11 +850,13 @@ th <- 0.1
 
 venn_plot_data <-
   edger_genes_cerebrum %>%
+  filter(FDR.genotype < th) %>%
+  filter(gene_stable_id != 'ENSMUSG00000064351') %>%  # after  quantile normalization it's top in all samples (all values are the same)
   mutate(
     genotype_10 = FDR.genotype_10 < th,
     genotype_70 = FDR.genotype_70 < th,
     genotype_10_regulation = if_else(logFC.genotype_10 < 0, 'up', 'down'),
-    genotype_70_regulation = if_else(logFC.genotype_70 < 0, 'up', 'down'),
+    genotype_70_regulation = if_else(logFC.genotype_70 < 0, 'up', 'down')
   )
 
 .venn_genotype_10_name <- venn_plot_data %>%
@@ -799,8 +866,7 @@ venn_plot_data <-
   arrange(desc(genotype_10_regulation)) %>%
   mutate(name = paste(genotype_10_regulation, n)) %>%
   pull(name) %>%
-  paste0(collapse = ' / ') %>%
-  { paste0('genotype 10 days (', paste0(., collapse = ' / '), ')') }
+  { paste0('genotype effect\nat 10 days \n', paste0(., collapse = ' \n ')) }
 .venn_genotype_70_name <- venn_plot_data %>%
   filter(genotype_70) %>%
   group_by(genotype_70_regulation) %>%
@@ -808,11 +874,11 @@ venn_plot_data <-
   arrange(desc(genotype_70_regulation)) %>%
   mutate(name = paste(genotype_70_regulation, n)) %>%
   pull(name) %>%
-  { paste0('genotype 10 weeks (', paste0(., collapse = ' / '), ')') }
+  { paste0('genotype effect\nat 10 weeks \n', paste0(., collapse = ' \n ')) }
 
 ggplot() +
   geom_text(
-    mapping = aes(x = 0, y = 1.8),
+    mapping = aes(x = 0, y = 2.2),
     label = tiss,
     size = 6
   ) +
@@ -820,14 +886,11 @@ ggplot() +
     aes_string(A = 'genotype_10', B = 'genotype_70'),
     data = venn_plot_data,
     fill_color = c('#0073C2FF', '#EFC000FF'),
-    set_names = c(.venn_genotype_10_name, .venn_genotype_70_name),
-    set_name_size = 3,
+    set_names = c(.venn_genotype_10_name, .venn_genotype_70_name, 'overall genotype effect'),
+    set_name_size = 5,
+    text_size = 5,
     auto_scale = TRUE,
     show_percentage = FALSE,
-    show_outside = 'none',
-  ) +
-  labs(
-    caption = paste('Number of genes regulated by genotype in 10 or 70 days old mice in', tiss, '; FDR <', th)
   ) +
   coord_fixed() +
   theme_void()
@@ -906,6 +969,7 @@ plot_data <-
   counts_cerebellum %>%
   full_join(edger_genes_cerebellum, by = c('gene_stable_id', 'gene_name')) %>%
   filter(FDR.genotype < fdr_th, !is.na(gene_name)) %>%
+  filter(FDR.interaction > fdr_th) %>%
   mutate(
     genotype_10 = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
     genotype_70 = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
@@ -944,17 +1008,17 @@ colnames(.x) <-
   rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
 )
 .right_annot_col <- list(
-      'genotype 10 days' = c('sig'='#15546a', 'ns'='white'),
-      'genotype 10 weeks' = c('sig'='#806600', 'ns'='white')  # little lighter than cerebrum
+      'genotype 10 days' = c('sig'='#15546a', 'ns'='#ebebeb'),
+      'genotype 10 weeks' = c('sig'='#806600', 'ns'='#ebebeb')  # little lighter than cerebrum
 )
 for (go_name in names(go_genes)) {
-  .right_annot_col[[go_name]] <- c('sig'='gray20', 'ns'='white')
+  .right_annot_col[[go_name]] <- c('sig'='gray20', 'ns'='#ebebeb')
 }
 
 .path_base <- paste0(
   'results/complex-heatmap/genotype-edger-', tiss, '-fdr-', fdr_th
 )
-svg(paste0(.path_base, '.svg'), width = 12, height = 6)
+svg(paste0(.path_base, '.svg'), width = 10, height = 20)
 h_cerebellum <- Heatmap(
   .x,
   column_title = paste('genotype effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
@@ -964,7 +1028,9 @@ h_cerebellum <- Heatmap(
   row_names_side = 'right',
   row_dend_width = unit(3, 'cm'),
   row_split = 4,
-  column_names_rot = 45,
+  column_names_rot = 0,
+  column_names_centered = TRUE,
+  show_column_names = FALSE,
   column_split = rep(1:4, each = 5),
   top_annotation = c(
     columnAnnotation(
@@ -973,7 +1039,9 @@ h_cerebellum <- Heatmap(
       col = list(
         'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
         'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
-      )
+      ),
+      show_legend = FALSE,
+      show_annotation_name = FALSE
     )
   ),
   right_annotation = c(
@@ -985,12 +1053,36 @@ h_cerebellum <- Heatmap(
       ),
       gap = unit(5, 'points'),
       annotation_name_rot = 45,
-      col = .right_annot_col
+      col = .right_annot_col,
+      show_legend = FALSE
     )
-  )
+  ),
+  heatmap_legend_param = list(
+    title = 'heatmap z-score', at = -3:3, legend_height = unit(3, 'cm')
+  ),
 )
 draw(h_cerebellum)
+for (i in 1:4) {
+  age_lab = ifelse(i %in% 1:2, '10 days', '10 weeks')
+  age_col = ifelse(i %in% 1:2, 'black', 'black')
+  gen_lab = ifelse(i %in% c(1, 3), 'C57BL/10', 'mdx')
+  gen_col = ifelse(i %in% c(1, 3), 'black', 'white')
+  decorate_annotation(
+    'age',
+    {grid.text(label = age_lab, gp = gpar(col = age_col, fontsize = 11))},
+    slice = i
+  )
+  decorate_annotation(
+    'genotype',
+    {grid.text(label = gen_lab, gp = gpar(col = gen_col, fontsize = 11))},
+    slice = i
+  )
+}
 dev.off()
+image_read(paste0(.path_base, '.svg'))  # show heatmap in Viewer pane
+
+h <- draw(h_cerebellum)
+cluster_stats(.x, plot_data, h)
 
 plot_data %>%
   select(gene_name, contains('logFC.genotype'), contains('FDR.genotyp')) %>%
@@ -1027,7 +1119,8 @@ colnames(.x) <-
 .path_base <- paste0(
   'results/complex-heatmap/genotype-edger-', tiss, '-interaction-fdr', fdr_th
 )
-png(paste0(.path_base, '.png'), width = 1000, height = 600, res = 120)
+
+svg(paste0(.path_base, '.svg'), width = 8, height = 3)
 h_cerebellum <- Heatmap(
   .x,
   column_title = paste('interaction effect in', tiss, 'FDR <', format(fdr_th, scientific = FALSE)),
@@ -1036,9 +1129,10 @@ h_cerebellum <- Heatmap(
   col = .col_fun,
   row_names_side = 'right',
   row_dend_width = unit(3, 'cm'),
-  row_split = 4,
+  row_split = 3,
   column_names_rot = 45,
   column_split = rep(1:4, each = 5),
+  show_column_names = FALSE,
   top_annotation = c(
     columnAnnotation(
       age = as.character(plot_info_cerebellum$age_days),
@@ -1046,12 +1140,38 @@ h_cerebellum <- Heatmap(
       col = list(
         'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
         'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
-      )
+      ),
+      show_legend = FALSE,
+      show_annotation_name = FALSE
     )
+  ),
+  heatmap_legend_param = list(
+    title = 'heatmap z-score', at = -3:3, legend_height = unit(3, 'cm')
   ),
 )
 draw(h_cerebellum)
+for (i in 1:4) {
+  age_lab = ifelse(i %in% 1:2, '10 days', '10 weeks')
+  age_col = ifelse(i %in% 1:2, 'black', 'black')
+  gen_lab = ifelse(i %in% c(1, 3), 'C57BL/10', 'mdx')
+  gen_col = ifelse(i %in% c(1, 3), 'black', 'white')
+  decorate_annotation(
+    'age',
+    {grid.text(label = age_lab, gp = gpar(col = age_col, fontsize = 11))},
+    slice = i
+  )
+  decorate_annotation(
+    'genotype',
+    {grid.text(label = gen_lab, gp = gpar(col = gen_col, fontsize = 11))},
+    slice = i
+  )
+}
 dev.off()  # fig. 6
+image_read(paste0(.path_base, '.svg'))  # show heatmap in Viewer pane
+
+h <- draw(h_cerebellum)
+cluster_stats(.x, plot_data, h)
+
 
 plot_data %>%
   select(gene_name, contains('logFC.interaction'), contains('FDR.interaction')) %>%
@@ -1069,9 +1189,14 @@ for (ct_heatmap_order in row_order(h_cerebellum)) {
     plot_data %>%
     slice(ct_heatmap_order) %>%
     pull(gene_name)
+  gen_10 <- plot_data %>% slice(ct_heatmap_order) %>% pull(FDR.genotype_10) < fdr_th
+  gen_70 <- plot_data %>% slice(ct_heatmap_order) %>% pull(FDR.genotype_70) < fdr_th
   clusters_cerebellum <- bind_rows(
     clusters_cerebellum,
-    tibble(gene_name = gene_names, cluster = ct)
+    tibble(
+      gene_name = gene_names, cluster = ct,
+      genotype_10 = gen_10, genotype_70 = gen_70
+    )
   )
   ct <- ct + 1
 }
@@ -1099,8 +1224,7 @@ venn_plot_data <-
   arrange(desc(age_regulation)) %>%
   mutate(name = paste(age_regulation, n)) %>%
   pull(name) %>%
-  paste0(collapse = ' / ') %>%
-  { paste0('age (', paste0(., collapse = ' / '), ')') }
+  { paste0('overall age effect\n', paste0(., collapse = ' \n ')) }
 .venn_genotype_name <- venn_plot_data %>%
   filter(genotype) %>%
   group_by(genotype_regulation) %>%
@@ -1108,11 +1232,11 @@ venn_plot_data <-
   arrange(desc(genotype_regulation)) %>%
   mutate(name = paste(genotype_regulation, n)) %>%
   pull(name) %>%
-  { paste0('genotype (', paste0(., collapse = ' / '), ')') }
+  { paste0('overall genotype effect\n', paste0(., collapse = ' \n ')) }
 
 ggplot() +
   geom_text(
-    mapping = aes(x = 0, y = 1.8),
+    mapping = aes(x = 0, y = 2.0),
     label = tiss,
     size = 6
   ) +
@@ -1121,13 +1245,11 @@ ggplot() +
     data = venn_plot_data,
     fill_color = c('#984EA3FF', '#FF7F00FF'),
     set_names = c(.venn_age_name, .venn_genotype_name),
-    set_name_size = 4,
+    set_name_size = 5,
+    text_size = 5,
     auto_scale = TRUE,
     show_percentage = FALSE,
     show_outside = 'none',
-  ) +
-  labs(
-    caption = paste('Number of genes regulated by age or genotype in', tiss, '; FDR <', th)
   ) +
   coord_fixed() +
   theme_void()
@@ -1144,6 +1266,8 @@ th <- 0.1
 
 venn_plot_data <-
   edger_genes_cerebellum %>%
+  filter(FDR.genotype < th, !is.na(gene_name)) %>%
+  filter(FDR.interaction > th) %>%
   mutate(
     genotype_10 = FDR.genotype_10 < th,
     genotype_70 = FDR.genotype_70 < th,
@@ -1155,11 +1279,11 @@ venn_plot_data <-
   filter(genotype_10) %>%
   group_by(genotype_10_regulation) %>%
   summarise(n = n()) %>%
+  bind_rows(list(genotype_10_regulation = 'up', n = 0)) %>%
   arrange(desc(genotype_10_regulation)) %>%
   mutate(name = paste(genotype_10_regulation, n)) %>%
   pull(name) %>%
-  paste0(collapse = ' / ') %>%
-  { paste0('genotype 10 days (', paste0(., collapse = ' / '), ')') }
+  { paste0('genotype effect\nat 10 days \n', paste0(., collapse = ' \n ')) }
 .venn_genotype_70_name <- venn_plot_data %>%
   filter(genotype_70) %>%
   group_by(genotype_70_regulation) %>%
@@ -1167,11 +1291,11 @@ venn_plot_data <-
   arrange(desc(genotype_70_regulation)) %>%
   mutate(name = paste(genotype_70_regulation, n)) %>%
   pull(name) %>%
-  { paste0('genotype 10 weeks (', paste0(., collapse = ' / '), ')') }
+  { paste0('genotype effect\nat 10 weeks \n', paste0(., collapse = ' \n ')) }
 
 ggplot() +
   geom_text(
-    mapping = aes(x = 0, y = 1.8),
+    mapping = aes(x = 0, y = 2.2),
     label = tiss,
     size = 6
   ) +
@@ -1180,13 +1304,10 @@ ggplot() +
     data = venn_plot_data,
     fill_color = c('#984EA3FF', '#FF7F00FF'),
     set_names = c(.venn_genotype_10_name, .venn_genotype_70_name),
-    set_name_size = 3,
+    set_name_size = 5,
+    text_size = 5,
     auto_scale = TRUE,
     show_percentage = FALSE,
-    show_outside = 'none',
-  ) +
-  labs(
-    caption = paste('Number of genes regulated by genotype in 10 or 70 days old mice in', tiss, '; FDR <', th)
   ) +
   coord_fixed() +
   theme_void()
@@ -1204,7 +1325,7 @@ ggsave(
 
 ```{r read_selected_genes}
 genes_wawa <- read_tsv('raw/gene-list-wawa.csv', show_col_types = FALSE)$Genes
-genes_wawa <- setdiff(genes_wawa, c('Dmd', 'Gphn', 'Dag1', 'Tfam', 'Pklr'))
+genes_wawa <- setdiff(genes_wawa, c('Dmd', 'Gphn', 'Dag1', 'Tfam', 'Pklr'))  # not interesting in this analysis
 stopifnot(genes_wawa %in% counts$gene_name)
 
 fdr_th <- 0.1
@@ -1241,7 +1362,7 @@ plot_info_cerebrum <-
 .outlier_gene <- 'mt-Co1'
 ```
 
-```{r draw_heatmap_selected_cerebrum, echo=FALSE, fig.align="center", fig.height=20, fig.width=12, results='asis', include=TRUE, warning=FALSE}
+```{r draw_heatmap_selected_cerebrum, echo=FALSE, fig.align="center", fig.height=10, fig.width=12, results='asis', include=TRUE, warning=FALSE}
 plot_data <-
   counts_cerebrum %>%
   full_join(edger_genes_cerebrum, by = c('gene_stable_id', 'gene_name')) %>%
@@ -1252,8 +1373,12 @@ anno_data_right <-
   plot_data %>%
   transmute(
     gene_name = gene_name,
-    `genotype 10 days` = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
-    `genotype 10 weeks` = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
+    `genotype 10 days` = if_else(
+      FDR.genotype_10 < fdr_th & !is.na(FDR.genotype_10), 'sig', 'ns'
+    ),
+    `genotype 10 weeks` = if_else(
+      FDR.genotype_70 < fdr_th & !is.na(FDR.genotype_70), 'sig','ns'
+    ),
   )
 anno_data_right <- as.data.frame(anno_data_right)
 
@@ -1272,7 +1397,7 @@ plot_data$gene_name[plot_data$gene_name == .outlier_gene] <- paste(.outlier_gene
   (function(x) { 1 - cor(t(x)) }) %>%  # correlation as distance
   as.dist() %>%
   hclust()
-rownames(.x) <- plot_data$gene_name
+rownames(.x) <- ifelse(plot_data$gene_name == 'Pklr', 'Pklr *', plot_data$gene_name)
 colnames(.x) <-
   tibble(id = colnames(.x)) %>%
   left_join(sample_info, by = 'id') %>%
@@ -1284,11 +1409,12 @@ colnames(.x) <-
   rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
 )
 .right_annot_col <- list(
-      'genotype 10 days' = c('sig'='#114355', 'ns'='white'),
-      'genotype 10 weeks' = c('sig'='#665200', 'ns'='white')
+      'genotype 10 days' = c('sig'='#114355', 'ns'='#ebebeb'),
+      'genotype 10 weeks' = c('sig'='#665200', 'ns'='#ebebeb')
 )
 
-svg('results/selected-genes/selected-genes-cerebrum.svg', width = 11, height = 7.3)
+.path_base <- paste0('results/selected-genes/selected-genes-', tiss)
+svg(paste0(.path_base, '.svg'), width = 11, height = 7.3)
 h_cerebrum <- Heatmap(
   .x,
   column_title = paste('Heatmap of selected genes in', tiss),
@@ -1301,6 +1427,7 @@ h_cerebrum <- Heatmap(
   row_split = 4,
   column_split = rep(1:4, each = 5),
   column_names_rot = 45,
+  show_column_names = FALSE,
   width = unit(350, 'points'),
   top_annotation = c(
     columnAnnotation(
@@ -1309,7 +1436,9 @@ h_cerebrum <- Heatmap(
       col = list(
         'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
         'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
-      )
+      ),
+      show_legend = FALSE,
+      show_annotation_name = FALSE
     )
   ),
   right_annotation = c(
@@ -1317,12 +1446,34 @@ h_cerebrum <- Heatmap(
       df = anno_data_right %>% select(starts_with('genotype')),
       gap = unit(5, 'points'),
       annotation_name_rot = 45,
-      col = .right_annot_col
+      col = .right_annot_col,
+      show_legend = FALSE
     )
   ),
+  heatmap_legend_param = list(title = 'heatmap z-score', at = -3:3, legend_height = unit(3, 'cm')),
 )
 draw(h_cerebrum)
+for (i in 1:4) {
+  age_lab = ifelse(i %in% 1:2, '10 days', '10 weeks')
+  age_col = ifelse(i %in% 1:2, 'black', 'black')
+  gen_lab = ifelse(i %in% c(1, 3), 'C57BL/10', 'mdx')
+  gen_col = ifelse(i %in% c(1, 3), 'black', 'white')
+  decorate_annotation(
+    'age',
+    {grid.text(label = age_lab, gp = gpar(col = age_col, fontsize = 11))},
+    slice = i
+  )
+  decorate_annotation(
+    'genotype',
+    {grid.text(label = gen_lab, gp = gpar(col = gen_col, fontsize = 11))},
+    slice = i
+  )
+}
 dev.off()  # fig. 4
+image_read(paste0(.path_base, '.svg'))  # show heatmap in Viewer pane
+
+h <- draw(h_cerebrum)
+cluster_stats(.x, plot_data, h)
 ```
 
 ## Cerebellum
@@ -1351,8 +1502,8 @@ anno_data_right <-
   plot_data %>%
   transmute(
     gene_name = gene_name,
-    `genotype 10 days` = if_else(FDR.genotype_10 < fdr_th, 'sig', 'ns'),
-    `genotype 10 weeks` = if_else(FDR.genotype_70 < fdr_th, 'sig', 'ns'),
+    `genotype 10 days` = if_else(FDR.genotype_10 < fdr_th & !is.na(FDR.genotype_10), 'sig', 'ns'),
+    `genotype 10 weeks` = if_else(FDR.genotype_70 < fdr_th & !is.na(FDR.genotype_70), 'sig', 'ns'),
   )
 anno_data_right <- as.data.frame(anno_data_right)
 
@@ -1361,7 +1512,7 @@ anno_data_right <- as.data.frame(anno_data_right)
   select(any_of(plot_info_cerebellum$id)) %>%
   as.matrix() %>%
   { t(scale(t(.))) }
-rownames(.x) <- plot_data$gene_name
+rownames(.x) <- ifelse(plot_data$gene_name == 'Pklr', 'Pklr *', plot_data$gene_name)
 colnames(.x) <-
   tibble(id = colnames(.x)) %>%
   left_join(sample_info, by = 'id') %>%
@@ -1373,10 +1524,12 @@ colnames(.x) <-
   rev(colorRampPalette(brewer.pal(11, "RdBu"))(24))
 )
 .right_annot_col <- list(
-      'genotype 10 days' = c('sig'='#15546a', 'ns'='white'),
-      'genotype 10 weeks' = c('sig'='#806600', 'ns'='white')  # little lighter than cerebrum
+      'genotype 10 days' = c('sig'='#15546a', 'ns'='#ebebeb'),
+      'genotype 10 weeks' = c('sig'='#806600', 'ns'='#ebebeb')  # little lighter than cerebrum
 )
 
+.path_base <- paste0('results/selected-genes/selected-genes-', tiss)
+svg(paste0(.path_base, '.svg'), width = 11, height = 7.3)
 svg('results/selected-genes/selected-genes-cerebellum.svg', width = 9.5, height = 7)
 h_cerebellum <- Heatmap(
   .x,
@@ -1386,8 +1539,9 @@ h_cerebellum <- Heatmap(
   col = .col_fun,
   row_names_side = 'right',
   row_dend_width = unit(3, 'cm'),
-  row_split = 4,
+  row_split = 2,
   column_names_rot = 45,
+  show_column_names = FALSE,
   column_split = rep(1:4, each = 5),
   top_annotation = c(
     columnAnnotation(
@@ -1396,7 +1550,9 @@ h_cerebellum <- Heatmap(
       col = list(
         'age' = c('10' = '#FDBF6F', '70' = '#FF7F00'),
         'genotype' = c('wt' = '#CAB2D6', 'mdx' = '#6A3D9A')
-      )
+      ),
+      show_legend = FALSE,
+      show_annotation_name = FALSE
     )
   ),
   right_annotation = c(
@@ -1407,12 +1563,34 @@ h_cerebellum <- Heatmap(
       ),
       gap = unit(5, 'points'),
       annotation_name_rot = 45,
-      col = .right_annot_col
+      col = .right_annot_col,
+      show_legend = FALSE
     )
-  )
+  ),
+  heatmap_legend_param = list(title = 'heatmap z-score', at = -3:3, legend_height = unit(3, 'cm')),
 )
 draw(h_cerebellum)
+for (i in 1:4) {
+  age_lab = ifelse(i %in% 1:2, '10 days', '10 weeks')
+  age_col = ifelse(i %in% 1:2, 'black', 'black')
+  gen_lab = ifelse(i %in% c(1, 3), 'C57BL/10', 'mdx')
+  gen_col = ifelse(i %in% c(1, 3), 'black', 'white')
+  decorate_annotation(
+    'age',
+    {grid.text(label = age_lab, gp = gpar(col = age_col, fontsize = 11))},
+    slice = i
+  )
+  decorate_annotation(
+    'genotype',
+    {grid.text(label = gen_lab, gp = gpar(col = gen_col, fontsize = 11))},
+    slice = i
+  )
+}
 dev.off()
+image_read(paste0(.path_base, '.svg'))  # show heatmap in Viewer pane
+
+h <- draw(h_cerebellum)
+cluster_stats(.x, plot_data, h)
 ```
 
 
