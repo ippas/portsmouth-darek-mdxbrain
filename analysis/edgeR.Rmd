@@ -337,7 +337,7 @@ plot_info <-
 ```
 
 ```{r fit_model}
-edger_model <- function(x, sample_info_groups, tissue=NA, contrast='genotype'){
+edger_model <- function(x, sample_info_groups, tissue=NA, contrast='genotype', bcv=FALSE){
   mdx_groups. <-
     sample_info_groups %>%
     `[`(match(colnames(x), .$id), ) %>%
@@ -350,7 +350,39 @@ edger_model <- function(x, sample_info_groups, tissue=NA, contrast='genotype'){
 
   dge_counts <- calcNormFactors(dge_counts)
   design <- model.matrix(~ 0 + mdx_groups.)
-  dge_counts <- estimateDisp(dge_counts, design)
+  dge_counts <- estimateDisp(dge_counts, design=design)
+
+  # other BCV
+  if (bcv) {
+    bcv_tagwise <- list()
+    plotBCV(dge_counts)
+    bcv_tagwise[['all']] <- sqrt(dge_counts$tagwise.dispersion)
+    bcv_common[['tissue']] <<- c(bcv_common[['tissue']], tissue)
+    for (gr in c('wt_10', 'wt_70', 'mdx_10', 'mdx_70')){
+      sample_info_sub <- filter(sample_info_groups, group == gr)
+      y <- x[, sample_info_sub$id]
+      mdx_groups_sub. <-
+        sample_info_sub %>%
+        `[`(match(colnames(y), .$id), ) %>%
+        pull(group) %>%
+        factor()
+      dge_counts_sub <- DGEList(counts = y, group = mdx_groups_sub.)
+      dge_counts_sub <- dge_counts_sub[keep_counts, , keep.lib.sizes = FALSE]
+      dge_counts_sub <- calcNormFactors(dge_counts_sub)
+      dge_counts_sub <- estimateDisp(dge_counts_sub)
+      plotBCV(dge_counts_sub)
+      bcv_tagwise[[gr]] <- sqrt(dge_counts_sub$tagwise.dispersion)
+
+      bcv_common[[gr]] <<- c(
+        bcv_common[[gr]],
+        sqrt(dge_counts_sub$common.dispersion)
+      )
+    }
+    bcv_common[['all']] <<- c(
+      bcv_common[['all']],
+      sqrt(dge_counts$common.dispersion)
+    )
+  }
 
   fit <- glmQLFit(dge_counts, design)
 
@@ -391,28 +423,42 @@ edger_model <- function(x, sample_info_groups, tissue=NA, contrast='genotype'){
   }
   results <- glmQLFTest(fit, contrast=contrasts[, contrast])
 
-  topTags(results, n = 'inf')$table %>%
+  out <-
+    topTags(results, n = 'inf', sort.by = 'none')$table %>%
     as_tibble(rownames = 'row_index')
+  if (bcv) {
+    out <- mutate(
+        out,
+        bcv = bcv_tagwise$all,
+        bcv_wt_10 = bcv_tagwise$wt_10, bcv_wt_70 = bcv_tagwise$wt_70,
+        bcv_mdx_10 = bcv_tagwise$mdx_10, bcv_mdx_70 = bcv_tagwise$mdx_70,
+        .after = row_index
+      )
+  }
+  out
 }
 ```
 
 ```{r edger_statistic}
-.cerebrum_edger <- function(contrast) {
+bcv_common <- list()
+
+.cerebrum_edger <- function(contrast, bcv = FALSE) {
   edger_model(
     select(counts_cerebrum_raw, starts_with('sample_')),
     sample_info %>%
       filter(tissue == 'cerebrum') %>%
       mutate(group = paste(genotype, age_days, sep = '_')),
     tissue = 'cerebrum',
-    contrast = contrast
+    contrast = contrast,
+    bcv = bcv
   )
 }
-
 edger_genes_cerebrum <-
   .cerebrum_edger(
-    contrast = 'genotype'
+    contrast = 'genotype',
+    bcv = TRUE
   ) %>%
-  rename_with(.fn = ~ paste0(.x, '.genotype'), .cols = -row_index) %>%
+  rename_with(.fn = ~ paste0(.x, '.genotype'), .cols = -c(row_index, starts_with('bcv'))) %>%
   full_join(
     rename_with(
       .cerebrum_edger(contrast = 'genotype_10'),
@@ -450,21 +496,23 @@ edger_genes_cerebrum <-
   filter(gene_type == 'protein_coding') %>%
   select(-row_index, -gene_type)
 
-.cerebellum_edger <- function(contrast) {
+.cerebellum_edger <- function(contrast, bcv = FALSE) {
   edger_model(
     select(counts_cerebellum_raw, starts_with('sample_')),
     sample_info %>%
       filter(tissue == 'cerebellum') %>%
       mutate(group = paste(genotype, age_days, sep = '_')),
     tissue = 'cerebellum',
-    contrast = contrast
+    contrast = contrast,
+    bcv = bcv
   )
 }
 edger_genes_cerebellum <-
   .cerebellum_edger(
-    contrast = 'genotype'
+    contrast = 'genotype',
+    bcv = TRUE
   ) %>%
-  rename_with(.fn = ~ paste0(.x, '.genotype'), .cols = -row_index) %>%
+  rename_with(.fn = ~ paste0(.x, '.genotype'), .cols = -c(row_index, starts_with('bcv'))) %>%
   full_join(
     rename_with(
       .cerebellum_edger(contrast = 'genotype_10'),
@@ -509,6 +557,10 @@ edger_genes_tissues <-
     suffix = c('.cerebrum', '.cerebellum'),
     by = c('gene_name', 'gene_stable_id')
   )
+
+as_tibble(bcv_common) %>% write_csv('results/BCV-common.csv')
+as_tibble(bcv_common) %>%
+  mutate(across(-tissue, ~ round(., 3)))
 ```
 
 ```{r result_util_function}
